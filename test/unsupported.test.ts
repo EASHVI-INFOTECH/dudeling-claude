@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/client";
 
 process.env.DUDELING_STATE_DIR = mkdtempSync(join(tmpdir(), "dudeling-test-intel-"));
 
-test("an Intel Mac is told plainly, and no board is opened", async (t) => {
+test("an Intel Mac is told plainly, and no board is opened", { skip: process.platform !== "darwin" && "only a Mac checks its chip" }, async (t) => {
   const real = Object.getOwnPropertyDescriptor(process, "arch")!;
   Object.defineProperty(process, "arch", { ...real, value: "x64" });
   t.after(() => Object.defineProperty(process, "arch", real));

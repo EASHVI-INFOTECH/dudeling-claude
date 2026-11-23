@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { build } from "esbuild";
 
@@ -20,7 +20,7 @@ before(async () => {
     outfile,
     logLevel: "error",
   });
-  ({ Player } = await import(outfile));
+  ({ Player } = await import(pathToFileURL(outfile).href));
 });
 
 function rig(lineMs = 5) {

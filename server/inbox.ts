@@ -5,10 +5,10 @@
  * here and be sent to the chat box.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { getBoard, isBoardId } from "./boards.ts";
-import { privateDir, stateDir, writePrivate } from "./store.ts";
+import { privateDir, renameWhenFree, stateDir, writePrivate } from "./store.ts";
 
 export interface Message {
   text: string;
@@ -46,9 +46,9 @@ function claim(board: string, file: string): Message | null {
   const from = join(dirOf(board), file);
   const taken = `${from}.${process.pid}.taken`;
   try {
-    renameSync(from, taken);
+    renameWhenFree(from, taken);
   } catch {
-    return null; // the other side got it
+    return null; // the other side got it (or it's still locked: it stays for the next look)
   }
   try {
     return JSON.parse(readFileSync(taken, "utf8")) as Message;

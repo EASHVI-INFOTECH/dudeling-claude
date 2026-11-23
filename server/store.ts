@@ -31,13 +31,30 @@ export function privateDir(name: string): string {
   return dir;
 }
 
+const BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
+const pause = new Int32Array(new SharedArrayBuffer(4));
+/**
+ * Rename, waiting out a short lock. On Windows a file that something has open (the other copy of the plugin
+ * reading it, an antivirus scanning a new file) can't be renamed for a moment. Up to ~0.5 s, then it throws.
+ */
+export function renameWhenFree(from: string, to: string) {
+  for (let tries = 0; ; tries++) {
+    try {
+      return renameSync(from, to);
+    } catch (e) {
+      if (tries >= 20 || !BUSY.has((e as NodeJS.ErrnoException).code ?? "")) throw e;
+      Atomics.wait(pause, 0, 0, 25);
+    }
+  }
+}
+
 let writes = 0;
 /** Atomic (readers never see half a file) and readable by this user only. */
 export function writePrivate(path: string, data: unknown) {
   const tmp = `${path}.${process.pid}.${writes++}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
-    renameSync(tmp, path);
+    renameWhenFree(tmp, path);
   } finally {
     rmSync(tmp, { force: true });
   }

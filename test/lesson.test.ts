@@ -129,9 +129,12 @@ test("D1: files are the owner's only, and the log holds none of what was said", 
   await claude.tool("reply_and_listen", { board_id: id, say: "My private answer" });
   // The player's timeline (no words) is kept, so a real run can be read afterwards.
   await board.tool("board_log", { entries: [{ level: "info", message: "player: step 3 start" }] });
-  assert.equal(statSync(state).mode & 0o777, 0o700);
-  for (const f of readdirSync(state, { withFileTypes: true }))
-    assert.equal(statSync(join(state, f.name)).mode & 0o777, f.isDirectory() ? 0o700 : 0o600, f.name);
+  // Unix permissions; on Windows the folder is private by being in the user's own AppData.
+  if (process.platform !== "win32") {
+    assert.equal(statSync(state).mode & 0o777, 0o700);
+    for (const f of readdirSync(state, { withFileTypes: true }))
+      assert.equal(statSync(join(state, f.name)).mode & 0o777, f.isDirectory() ? 0o700 : 0o600, f.name);
+  }
   const file = readFileSync(join(state, "dudeling.log"), "utf8");
   assert.match(file, /board info: player: step 3 start/, "the log file keeps the timeline");
   for (const words of ["My private question", "My private answer", "Secret topic"]) {

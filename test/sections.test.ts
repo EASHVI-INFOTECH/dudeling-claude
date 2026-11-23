@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 // The board's events → steps and the player's layout repair, bundled as the board bundles them.
@@ -21,7 +21,7 @@ before(async () => {
       outfile,
       logLevel: "error",
     });
-    return import(outfile);
+    return import(pathToFileURL(outfile).href);
   };
   ev = { ...(await bundle("events.ts")), repairBySection: (await bundle("player.ts")).repairBySection };
 });
