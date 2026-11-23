@@ -58,7 +58,7 @@ jobs:
       # Timings are checked by release:check on a real computer, not on shared CI machines. The board
       # test runs where Chrome is in its Mac location and skips itself elsewhere.
       - name: Tests
-        run: node --test --test-concurrency=1 --test-skip-pattern=^timing: "test/*.test.ts"
+        run: 'node --test --test-concurrency=1 "--test-skip-pattern=^timing:" "test/*.test.ts"'
 
       - name: Pack, and test the packed file
         run: npm run pack
