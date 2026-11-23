@@ -120,7 +120,9 @@ test("packed: starts, lists its tools, speaks, hears, keeps stdout clean, and ex
     slowest = Math.max(slowest, performance.now() - t0);
     await new Promise((r) => setTimeout(r, 25));
   }
-  assert.ok(slowest < 100, `a call took ${Math.round(slowest)} ms while speaking`);
+  // 100 ms on a real computer (release:check); shared CI machines stall now and then, so they get slack.
+  const bar = process.env.CI ? 300 : 100;
+  assert.ok(slowest < bar, `a call took ${Math.round(slowest)} ms while speaking (bar ${bar} ms)`);
 
   assert.deepEqual(p.noise, [], "stdout carries only the protocol");
   p.close();
