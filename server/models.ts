@@ -8,9 +8,13 @@ export const STT_MODEL = "onnx-community/whisper-base.en";
 export const VOICE = "af_heart";
 export const MODELS_DIR = process.env.DUDELING_MODELS_DIR ?? fileURLToPath(new URL("../models", import.meta.url));
 
-/** The extension ships the engine for Apple silicon only, and a manifest can't say so. */
-export const unsupportedHere = () => process.platform === "darwin" && process.arch !== "arm64";
-export const UNSUPPORTED = "Dudeling needs a Mac with Apple silicon (M1 or later). This Mac has an Intel chip.";
+/** The extension ships the engine for Apple-silicon Macs and 64-bit Intel/AMD Windows only, and a manifest can't say which chip. */
+export const unsupportedHere = () =>
+  (process.platform === "darwin" && process.arch !== "arm64") || (process.platform === "win32" && process.arch !== "x64");
+export const unsupportedMessage = () =>
+  process.platform === "win32"
+    ? "Dudeling on Windows needs a 64-bit Intel or AMD processor. This PC has an ARM processor."
+    : "Dudeling needs a Mac with Apple silicon (M1 or later). This Mac has an Intel chip.";
 
 /** Models are fetched when missing, except in the extension (which ships them). */
 export const downloadsAllowed = () => process.env.DUDELING_VOICE_DOWNLOAD !== "off";

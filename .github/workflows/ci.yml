@@ -1,0 +1,104 @@
+# Builds, tests and packs Dudeling on each platform it ships for. A tag mcp-v<version> also publishes
+# both bundles as a pre-release (never "latest": that's what the desktop app's updater reads).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["mcp-v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  pack:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple silicon
+            target: darwin-arm64
+          - os: windows-latest
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      DUDELING_REQUIRE_MODELS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # the latest 22.x; the package needs >= 22.18
+          cache: npm
+
+      - run: npm ci
+
+      - name: Restore the models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('models.lock.json') }}
+          enableCrossOsArchive: true
+
+      - name: Fetch the models, and say a test line
+        run: npm run voice
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # Timings are checked by release:check on a real computer, not on shared CI machines. The board
+      # test runs where Chrome is in its Mac location and skips itself elsewhere.
+      - name: Tests
+        run: node --test --test-concurrency=1 --test-skip-pattern=^timing: "test/*.test.ts"
+
+      - name: Pack, and test the packed file
+        run: npm run pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dudeling-${{ matrix.target }}
+          path: |
+            dudeling-${{ matrix.target }}.mcpb
+            dudeling-${{ matrix.target }}.mcpb.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/mcp-v')
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: The tag matches the version
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          test "${GITHUB_REF_NAME}" = "mcp-v${version}" || { echo "tag ${GITHUB_REF_NAME} ≠ mcp-v${version}"; exit 1; }
+          (cd out && sha256sum -c *.sha256)
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#mcp-v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" out/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" out/* --prerelease --latest=false \
+              --title "Dudeling ${version}" --notes-file RELEASE_NOTES.md
+          fi

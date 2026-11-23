@@ -8,7 +8,7 @@ import { fromWav } from "../server/hearing.ts";
 import { toWav } from "../server/voice.ts";
 
 // The packed extension, as it is installed. Runs from `npm run pack`, or:
-//   DUDELING_PACKED=dudeling-darwin-arm64.mcpb node --test test/packed.test.ts
+//   DUDELING_PACKED=dudeling-darwin-arm64.mcpb node --test test/packed.test.ts   (or dudeling-win32-x64.mcpb)
 const FILE = process.env.DUDELING_PACKED;
 const skip = FILE ? false : "set DUDELING_PACKED to a .mcpb";
 
@@ -83,7 +83,9 @@ before(() => {
   // which hid the "bundled self-test runs as the main program" start-up failure.
   dir = realpathSync(mkdtempSync(join(tmpdir(), "dudeling-packed-")));
   state = realpathSync(mkdtempSync(join(tmpdir(), "dudeling-packed-state-")));
-  execFileSync("unzip", ["-q", resolve(FILE), "-d", dir]);
+  // Windows has no unzip; its tar (bsdtar) reads zip files.
+  if (process.platform === "win32") execFileSync("tar", ["-xf", resolve(FILE), "-C", dir]);
+  else execFileSync("unzip", ["-q", resolve(FILE), "-d", dir]);
 });
 after(() => {
   for (const d of [dir, state]) if (d) rmSync(d, { recursive: true, force: true });

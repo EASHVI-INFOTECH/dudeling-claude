@@ -2,9 +2,9 @@
   "manifest_version": "0.4",
   "name": "dudeling",
   "display_name": "Dudeling",
-  "version": "1.0.0-rc.5",
+  "version": "1.0.0-rc.6",
   "description": "A tutor that teaches on a whiteboard inside your chat: Claude explains while Dudeling draws and talks.",
-  "long_description": "Ask Claude to teach you something. Dudeling opens a whiteboard in the conversation, draws as it explains out loud, and checks what you learned. Talk or type on the board to ask, answer or interrupt.\n\nThe voice and speech recognition run on your Mac: audio never leaves it and no account or key is needed. What you say (as text), type or draw on the board is given to Claude as part of your conversation. Lessons are kept on this Mac for 30 days.\n\nFor Apple-silicon Macs, in English.",
+  "long_description": "Ask Claude to teach you something. Dudeling opens a whiteboard in the conversation, draws as it explains out loud, and checks what you learned. Talk or type on the board to ask, answer or interrupt.\n\nThe voice and speech recognition run on your computer: audio never leaves it and no account or key is needed. What you say (as text), type or draw on the board is given to Claude as part of your conversation. Lessons are kept on this computer for 30 days.\n\nFor Apple-silicon Macs and 64-bit Windows PCs (Intel/AMD), in English.",
   "author": {
     "name": "Dudeling"
   },
@@ -60,7 +60,8 @@
   },
   "compatibility": {
     "platforms": [
-      "darwin"
+      "darwin",
+      "win32"
     ],
     "runtimes": {
       "node": ">=22.18.0"

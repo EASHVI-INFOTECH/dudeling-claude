@@ -19,6 +19,20 @@ Round 1 first (20 minutes), then stop and report. Round 2 only once round 1 pass
 
 Lessons from before this version don't carry over: their boards say they've expired.
 
+## On Windows
+
+Same rounds, with these changes:
+
+- Set up: quit Claude from the tray icon (not just the window). If you ran a source copy, remove `dudeling`
+  from `mcpServers` in `%APPDATA%\Claude\claude_desktop_config.json` first. Install `dudeling-win32-x64.mcpb`.
+- Try it once on a PC that has never had Visual Studio or the "Microsoft Visual C++ Redistributable"
+  installed, if you can: the bundle carries its own copy, and "Voice on (basic)" there means it didn't load.
+- Row 11: the microphone icon in the taskbar goes away. Row 16: Settings → Privacy & security → Microphone.
+  Row 19: sleep the PC.
+- Lessons are in `%LOCALAPPDATA%\Dudeling`, Dudeling's log in `%LOCALAPPDATA%\Dudeling\Logs`, Claude's in
+  `%APPDATA%\Claude\logs`.
+- Note your Windows version, and whether Windows warned about the download.
+
 ## Round 1 (20 minutes): does it work in real Claude?
 
 | # | Do | Pass |

@@ -19,7 +19,7 @@ import * as engine from "./engine.ts";
 import { CLEAR_BOARD_DESCRIPTION, DRAW_DESCRIPTION, GUIDE, OPEN_BOARD_DESCRIPTION, REPLY_AND_LISTEN_DESCRIPTION, TEACH_PART_DESCRIPTION } from "./guide.ts";
 import * as inbox from "./inbox.ts";
 import { changed, listen, type Heard } from "./listen.ts";
-import { UNSUPPORTED, unsupportedHere } from "./models.ts";
+import { unsupportedHere, unsupportedMessage } from "./models.ts";
 import { checkLine, speechPieces } from "./speech-text.ts";
 import { VERSION } from "./version.ts";
 import * as voice from "./voice.ts";
@@ -109,7 +109,7 @@ export function createDudelingServer(boardHtml: string): McpServer {
       _meta: { ui: { resourceUri: BOARD_URI } },
     },
     async ({ title }) => {
-      if (unsupportedHere()) return failed(`${UNSUPPORTED} Tell the user that, and teach them in the chat instead.`, { unsupported: UNSUPPORTED });
+      if (unsupportedHere()) return failed(`${unsupportedMessage()} Tell the user that, and teach them in the chat instead.`, { unsupported: unsupportedMessage() });
       const id = boards.openBoard(title);
       boards.setClaude(id, "busy");
       void engine.prepare("voice");
