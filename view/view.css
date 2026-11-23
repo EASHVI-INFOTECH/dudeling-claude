@@ -1,0 +1,36 @@
+:root { color-scheme: light dark; }
+html, body, #root { margin: 0; height: 100%; }
+body { font: 14px/1.4 system-ui, sans-serif; background: transparent; }
+
+.dud { --ink: #34323a; --muted: #68646c; --line: rgba(40, 36, 30, 0.1); --bar: #fcfbf9; --accent: #675bb3;
+  box-sizing: border-box; display: flex; flex-direction: column; height: 560px; color: var(--ink); background: #fff; border-radius: 12px; overflow: hidden; }
+.dud--dark { --ink: #e4e1e6; --muted: #9c98a1; --line: rgba(255, 255, 255, 0.1); --bar: #222126; --accent: #a69ee0; background: #121212; }
+.dud--full { height: 100vh; border-radius: 0; }
+.dud__board { position: relative; flex: 1; min-height: 0; }
+/* Hide Excalidraw's own chrome (incl. its compact layout in narrow frames): Dudeling's toolbar replaces it. */
+.dud__board .layer-ui__wrapper, .dud__board .App-bottom-bar, .dud__board .HelpDialog, .dud__board .App-menu, .dud__board footer,
+.dud__board .mobile-misc-tools-container, .dud__board .HintViewer, .dud__board .App-toolbar-container, .dud__board .default-sidebar-trigger,
+.dud__board .sidebar-trigger, .dud__board .main-menu-trigger { display: none !important; }
+.dud__waiting { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 15px; pointer-events: none; }
+.dud__bar { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--bar); }
+.dud__caption { min-width: 0; min-height: 40px; display: flex; gap: 8px; align-items: baseline; font-size: 14.5px; }
+.dud__caption > span:last-child { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dud__status { flex: none; font-size: 11.5px; font-weight: 600; color: var(--accent); border: 1px solid currentColor; border-radius: 99px; padding: 0 7px; }
+.dud__controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.dud__controls button { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: inherit; font: 500 13px system-ui, sans-serif; cursor: pointer; }
+.dud__controls button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 480px) { .dud:not(.dud--full) { height: 500px; } .dud__controls button { padding: 0 8px; } }
+.dud__play { position: absolute; inset: 0; margin: auto; width: fit-content; height: fit-content; z-index: 20; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 18px 28px; border-radius: 18px; border: 0; background: var(--accent); color: #fff; font: 600 20px system-ui, sans-serif; cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.dud__play span { font-size: 18px; }
+.dud__play small { font: 400 12.5px system-ui, sans-serif; opacity: .85; }
+.dud__talk[aria-pressed="true"] { border-color: var(--accent) !important; color: var(--accent); }
+.dud__talk--hearing { background: color-mix(in srgb, var(--accent) 18%, transparent) !important; }
+.dud__talk--denied { opacity: .6; }
+.dud__text { flex: 1; min-width: 150px; box-sizing: border-box; height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: inherit; font: 13.5px system-ui, sans-serif; }
+.dud__text::placeholder { color: var(--muted); }
+.dud__controls .dud__continue { border-color: var(--accent); color: var(--accent); }
+.dud__controls :focus-visible, .dud__play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dud__play:focus-visible { outline-color: var(--ink); }
+.dud--dark .dud__play { color: #1b1727; }
+.dud__unsupported { margin: auto; padding: 24px; max-width: 420px; text-align: center; font-size: 16px; }

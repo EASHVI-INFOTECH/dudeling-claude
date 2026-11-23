@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dudeling test host</title>
+    <style>
+      body { margin: 0; font: 13px system-ui, sans-serif; background: #1c1c1f; color: #ddd; display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+      #chat { padding: 16px; overflow: auto; }
+      #side { border-left: 1px solid #333; padding: 12px; overflow: auto; }
+      iframe { width: 100%; border: 1px solid #333; border-radius: 12px; background: transparent; }
+      button { margin: 3px 0; padding: 6px 10px; border-radius: 8px; border: 1px solid #444; background: #2a2a2e; color: #eee; cursor: pointer; width: 100%; text-align: left; }
+      pre { white-space: pre-wrap; font: 11px ui-monospace, monospace; color: #aaa; }
+      .err { color: #ff8080; }
+    </style>
+  </head>
+  <body>
+    <div id="chat"><p id="say">Simulated chat. Use the buttons to act as Claude.</p><div id="frame"></div></div>
+    <div id="side">
+      <b>Act as Claude</b>
+      <button id="open">1. open_board "How a fridge stays cold"</button>
+      <button id="step">2. draw next step</button>
+      <button id="all">Draw all steps (1 s apart)</button>
+      <button id="part">teach_part (the whole demo, narrated)</button>
+      <button id="pause">pause_board</button>
+      <button id="resume">resume_board</button>
+      <button id="clear">clear_board → "Heat pumps"</button>
+      <button id="look">look_at_board</button>
+      <label><input type="checkbox" id="dark" /> dark host theme</label>
+      <pre id="log"></pre>
+    </div>
+    <script type="module" src="./host.ts"></script>
+  </body>
+</html>

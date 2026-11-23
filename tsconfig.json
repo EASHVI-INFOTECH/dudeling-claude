@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "paths": {
+      "@board/*": ["./board/*"],
+      "@excalidraw/excalidraw": ["./node_modules/@excalidraw/excalidraw"],
+      "@excalidraw/excalidraw/*": ["./node_modules/@excalidraw/excalidraw/dist/types/excalidraw/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"]
+    }
+  },
+  "include": ["board", "view", "server", "test", "scripts"]
+}

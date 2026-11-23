@@ -1,0 +1,6 @@
+/** The guide's example lesson, played when the board is opened outside a chat (preview). */
+export const DEMO = {"title":"How a fridge stays cold","steps":[
+{"say":"[1] A fridge is really a heat mover: it pushes heat from [2] inside the box to [3] the room outside.","actions":[{"type":"write_text","id":"title","x":40,"y":40,"text":"How a fridge stays cold","fontSize":32},{"type":"draw_shape","id":"inside","shape":"rectangle","x":120,"y":220,"width":200,"height":90,"label":"Inside (cold)","color":"blue"},{"type":"draw_shape","id":"outside","shape":"rectangle","x":760,"y":220,"width":200,"height":90,"label":"Room (warm)","color":"red"}]},
+{"say":"A coolant soaks up heat inside the fridge and [1] carries it out to the room.","actions":[{"type":"draw_arrow","id":"heat-out","from":"inside","to":"outside","label":"heat carried out"}]},
+{"say":"So remember: [1] a fridge doesn't make cold, [2] it removes heat.","actions":[{"type":"write_text","id":"takeaway","x":120,"y":400,"text":"A fridge removes heat; it doesn't make cold.","fontSize":20,"color":"green"},{"type":"underline","target":"takeaway","color":"green"}]}],
+"check":{"question":"If you leave the fridge door open in a closed room, does the room get colder? Why?","answer":"No, warmer: the fridge moves heat from inside to the room, and its motor adds heat too."}};

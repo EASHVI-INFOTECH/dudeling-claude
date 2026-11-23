@@ -1,0 +1,11 @@
+node_modules/
+dist/
+bundle/
+models/
+*.mcpb
+*.mcpb.sha256
+.last-pack
+*.log
+.DS_Store
+.env
+.env.*

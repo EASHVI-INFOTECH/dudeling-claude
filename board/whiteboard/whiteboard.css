@@ -1,0 +1,320 @@
+/* Design tokens: shared by the board and the controls layered over it (e.g. the ask bar). */
+/* Muted palette: soft warm neutrals + one desaturated accent (set from prefs). */
+.app,
+.whiteboard {
+  --accent: var(--accent-board, #7a6fbf);
+  --wb-surface: #fcfbf9;
+  --wb-border: rgba(40, 36, 30, 0.09);
+  --wb-shadow: 0 4px 24px rgba(40, 36, 30, 0.07), 0 1px 3px rgba(40, 36, 30, 0.05);
+  --wb-icon: #3e3c41;
+  --wb-hover: #f2f0ec;
+  --wb-active-bg: color-mix(in srgb, var(--accent) 18%, var(--wb-surface));
+  --wb-active-fg: color-mix(in srgb, var(--accent) 80%, #000);
+  --wb-divider: rgba(40, 36, 30, 0.08);
+}
+
+.whiteboard {
+  position: absolute;
+  inset: 0;
+}
+
+/* The board's theme is its own setting (Settings → Appearance), not just the system's. */
+:root[data-board="dark"] .app,
+:root[data-board="dark"] .whiteboard {
+  --wb-surface: #232227;
+  --wb-border: rgba(255, 255, 255, 0.08);
+  --wb-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --wb-icon: #d9d7dc;
+  --wb-hover: #2e2d33;
+  --wb-active-bg: color-mix(in srgb, var(--accent) 30%, #232227);
+  --wb-active-fg: color-mix(in srgb, var(--accent) 60%, #fff);
+  --wb-divider: rgba(255, 255, 255, 0.1);
+}
+
+/* Hide all of Excalidraw's own chrome; Dudeling renders its own toolbar. */
+.whiteboard .layer-ui__wrapper,
+.whiteboard .App-bottom-bar,
+.whiteboard .HelpDialog {
+  display: none !important;
+}
+
+/* ---- Toolbar ---- */
+
+.wb-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow);
+  user-select: none;
+}
+
+.wb-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wb-toolbar__group + .wb-toolbar__group {
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--wb-divider);
+}
+
+.wb-toolbar__btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--wb-icon);
+  cursor: pointer;
+}
+
+.wb-toolbar__btn:hover {
+  background: var(--wb-hover);
+}
+
+.wb-toolbar__btn[aria-pressed="true"] {
+  background: var(--wb-active-bg);
+  color: var(--wb-active-fg);
+}
+
+.wb-toolbar__btn:focus-visible,
+.wb-toolbar__swatch:focus-visible {
+  outline: 2px solid var(--wb-active-fg);
+  outline-offset: 1px;
+}
+
+.wb-toolbar__swatch {
+  width: 22px;
+  height: 22px;
+  margin: 0 2px;
+  padding: 0;
+  border: 2px solid var(--wb-surface);
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--wb-border);
+  cursor: pointer;
+}
+
+/* Excalidraw renders "ink" (#1e1e1e) as light strokes in dark mode; match the swatch. */
+:root[data-board="dark"] .wb-toolbar__swatch[style*="#1e1e1e"] {
+  background: #e8e8ec;
+}
+
+.wb-toolbar__swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--wb-active-fg);
+}
+
+/* ---- Tutor presence ---- */
+
+.tutor-follow {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--wb-border);
+  background: var(--wb-surface);
+  color: var(--wb-icon);
+  box-shadow: var(--wb-shadow);
+  font: 500 13px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.tutor-follow__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #adb5bd;
+}
+
+.tutor-follow[aria-pressed="true"] .tutor-follow__dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(112, 72, 232, 0.25);
+}
+
+.tutor-marker {
+  position: absolute;
+  z-index: 10;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: 600 12px/1 system-ui, sans-serif;
+  box-shadow: 0 4px 14px rgba(112, 72, 232, 0.35);
+  cursor: pointer;
+}
+
+.tutor-marker__arrow {
+  display: inline-block;
+}
+
+/* ---- Ask bar ---- */
+
+.tutor-bar-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 11;
+  width: min(620px, calc(100% - 420px));
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.tutor-caption,
+.tutor-bar {
+  pointer-events: auto;
+}
+
+.tutor-caption {
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(30, 30, 36, 0.92);
+  color: #f1f1f4;
+  font: 500 15px/1.45 system-ui, sans-serif;
+  text-align: center;
+  box-shadow: var(--wb-shadow);
+}
+
+.tutor-caption--error {
+  background: #c92a2a;
+}
+
+.tutor-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-border);
+  box-shadow: var(--wb-shadow);
+}
+
+.tutor-bar__input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 8px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--wb-icon);
+  font: 15px system-ui, sans-serif;
+}
+
+.tutor-bar__btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--wb-icon);
+  cursor: pointer;
+}
+
+.tutor-bar__btn:hover:not(:disabled) {
+  background: var(--wb-hover);
+}
+
+.tutor-bar__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tutor-bar__send:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tutor-bar__mic.is-on {
+  background: #e03131;
+  color: #fff;
+  box-shadow: 0 0 0 calc(3px + var(--level, 0) * 10px) rgba(224, 49, 49, 0.25);
+  transition: box-shadow 60ms linear;
+}
+
+.tutor-caption__progress {
+  margin-bottom: 4px;
+  font: 600 11px/1.2 system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.tutor-caption__label {
+  margin-bottom: 4px;
+  font: 700 12px/1.2 system-ui, sans-serif;
+  color: #b197fc;
+}
+
+.tutor-caption--check {
+  border: 1px solid rgba(177, 151, 252, 0.55);
+}
+
+.tutor-caption__actions {
+  margin-top: 8px;
+}
+
+.tutor-caption__actions button {
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: 500 12px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.tutor-bar__btn.is-active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 calc(var(--level, 0) * 8px) rgba(112, 72, 232, 0.3);
+  transition: box-shadow 60ms linear;
+}
+
+.tutor-bar__quiz {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--wb-icon);
+  font: 500 12.5px system-ui, sans-serif;
+  cursor: pointer;
+}
+.tutor-bar__quiz:hover { background: var(--wb-hover); }

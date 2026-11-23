@@ -1,0 +1,127 @@
+{
+  "manifest_version": "0.4",
+  "name": "dudeling",
+  "display_name": "Dudeling",
+  "version": "1.0.0-rc.5",
+  "description": "A tutor that teaches on a whiteboard inside your chat: Claude explains while Dudeling draws and talks.",
+  "long_description": "Ask Claude to teach you something. Dudeling opens a whiteboard in the conversation, draws as it explains out loud, and checks what you learned. Talk or type on the board to ask, answer or interrupt.\n\nThe voice and speech recognition run on your Mac: audio never leaves it and no account or key is needed. What you say (as text), type or draw on the board is given to Claude as part of your conversation. Lessons are kept on this Mac for 30 days.\n\nFor Apple-silicon Macs, in English.",
+  "author": {
+    "name": "Dudeling"
+  },
+  "license": "GPL-3.0-or-later",
+  "icon": "icon.png",
+  "icons": [
+    {
+      "src": "icons/icon-128.png",
+      "size": "128x128",
+      "theme": "light"
+    },
+    {
+      "src": "icons/icon-256.png",
+      "size": "256x256",
+      "theme": "light"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "size": "512x512",
+      "theme": "light"
+    },
+    {
+      "src": "icons/icon-dark-128.png",
+      "size": "128x128",
+      "theme": "dark"
+    },
+    {
+      "src": "icons/icon-dark-256.png",
+      "size": "256x256",
+      "theme": "dark"
+    },
+    {
+      "src": "icons/icon-dark-512.png",
+      "size": "512x512",
+      "theme": "dark"
+    }
+  ],
+  "screenshots": [
+    "cover.png"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/stdio.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/stdio.js"
+      ],
+      "env": {
+        "DUDELING_VOICE_DOWNLOAD": "off"
+      }
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=22.18.0"
+    }
+  },
+  "tools": [
+    {
+      "name": "open_board",
+      "description": "Open a whiteboard for the lesson."
+    },
+    {
+      "name": "teach_part",
+      "description": "Teach one part: the board draws and narrates it."
+    },
+    {
+      "name": "reply_and_listen",
+      "description": "Reply out loud, then hear what the learner says or types on the board."
+    },
+    {
+      "name": "say",
+      "description": "Say one thing out loud."
+    },
+    {
+      "name": "draw",
+      "description": "Draw a quick sketch."
+    },
+    {
+      "name": "pause_board",
+      "description": "Pause the narration."
+    },
+    {
+      "name": "resume_board",
+      "description": "Carry on with the paused part."
+    },
+    {
+      "name": "clear_board",
+      "description": "Start a different topic on the same board."
+    },
+    {
+      "name": "look_at_board",
+      "description": "See the board, including the learner's drawing."
+    },
+    {
+      "name": "dudeling_guide",
+      "description": "How to teach well with Dudeling."
+    }
+  ],
+  "prompts": [
+    {
+      "name": "teach-me",
+      "description": "Learn a topic on Dudeling's whiteboard.",
+      "arguments": [
+        "topic"
+      ],
+      "text": "Tutor me on ${arguments.topic} with Dudeling: read dudeling_guide first, open one board, then teach one part at a time with teach_part, calling reply_and_listen after each to hear me on the board."
+    }
+  ],
+  "keywords": [
+    "tutor",
+    "whiteboard",
+    "learning",
+    "education"
+  ]
+}
