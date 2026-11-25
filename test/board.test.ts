@@ -745,3 +745,81 @@ test("prepared ahead: after the verdict, the part prepared for it starts with no
     await v.close();
   }
 });
+
+test("the active canvas shows editable learner ink after reopening, then forgets an erased mark", { skip, timeout: 90_000 }, async () => {
+  const id = await open();
+  const inspect = async () => textOf(await call("look_at_board", { board_id: id }));
+  const v = await show(id);
+  let mark = "";
+  try {
+    await until("live canvas", async () => (await inspect()).includes("Current canvas"));
+    const canvas = await v.board.locator("canvas.excalidraw__canvas.interactive").boundingBox();
+    assert.ok(canvas);
+    const x = canvas.x + canvas.width * 0.35, y = canvas.y + canvas.height * 0.55;
+    await v.page.mouse.move(x, y);
+    await v.page.mouse.down();
+    await v.page.mouse.move(x + 48, y + 44, { steps: 7 });
+    await v.page.mouse.up();
+    await until("drawn ink", async () => {
+      mark = (await inspect()).match(/([^\s]+) freedraw \(learner\) at/)?.[1] ?? "";
+      return !!mark;
+    });
+    await sleep(400);
+  } finally { await v.close(); }
+
+  const reopened = await show(id);
+  try {
+    await until("restored canvas", async () => (await inspect()).includes(mark + " freedraw (learner)"));
+    await reopened.board.getByRole("button", { name: "Clear board" }).click();
+    await until("erased canvas", async () => (await inspect()).includes("(empty canvas)"));
+    await sleep(400);
+  } finally { await reopened.close(); }
+
+  const finalView = await show(id);
+  try {
+    await until("erasure saved", async () => (await inspect()).includes("(empty canvas)"));
+  } finally { await finalView.close(); }
+});
+
+test("looking at a board before Play omits the tutor's queued diagrams", { skip, timeout: 45_000 }, async () => {
+  const id = await open();
+  const { t } = await teach(id, { lines: 3 });
+  const v = await show(id);
+  try {
+    await v.board.locator(".dud__play").waitFor();
+    const actual = textOf(await call("look_at_board", { board_id: id }));
+    assert.match(actual, /Current canvas/);
+    assert.ok(!actual.includes(t + "2"));
+  } finally { await v.close(); }
+});
+
+test("failed recognition keeps the lesson paused, and a late transcript cannot cross a topic change", { skip, timeout: 90_000 }, async () => {
+  const wav = (await call("speak", { text: "Wait, why is that?" })).structuredContent.wav;
+  const id = await open();
+  const { spoken } = await teach(id);
+  const v = await show(id);
+  try {
+    await pressPlay(v);
+    await says(v, spoken[0]);
+    await v.board.locator(".dud__talk").click();
+    await until("mic ready", async () => (await v.board.locator(".dud__talk").innerText()).includes("Listening"));
+    await v.page.evaluate(() => { (window as any).__transcription = async () => ({ isError: true, content: [], structuredContent: { text: "" } }); });
+    await v.board.evaluate(wav => (window as any).__speakIntoMic(wav), wav);
+    await says(v, "Please ask again", 12_000);
+    assert.equal(await v.board.getByTitle("Carry on").count(), 1);
+
+    await v.page.evaluate(() => {
+      (window as any).__transcription = () => new Promise(resolve => {
+        (window as any).__finishTranscript = () => resolve({ content: [], structuredContent: { text: "A question about the old topic" } });
+      });
+    });
+    await v.board.evaluate(wav => (window as any).__speakIntoMic(wav), wav);
+    await until("recognition in flight", () => v.page.evaluate(() => !!(window as any).__finishTranscript));
+    await call("clear_board", { board_id: id, title: "Clouds" });
+    await until("new topic", async () => (await v.board.locator(".dud__waiting").innerText()).includes("Clouds"));
+    await v.page.evaluate(() => (window as any).__finishTranscript());
+    await sleep(500);
+    assert.equal((await import("../server/inbox.ts")).take(id).length, 0);
+    assert.ok(!(await caption(v)).includes("old topic"));
+  } finally { await v.close(); }
+});

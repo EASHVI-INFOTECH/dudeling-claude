@@ -45,7 +45,7 @@ async function voice(): Promise<Run> {
     if (!text) return null; // warm-up only
     const audio = await tts.generate(text, { voice: VOICE });
     const samples = audio.audio as Float32Array;
-    return { wav: toWav(samples, audio.sampling_rate).toString("base64"), durationMs: Math.round((samples.length / audio.sampling_rate) * 1000) };
+    return { bytes: new Uint8Array(toWav(samples, audio.sampling_rate)), durationMs: Math.round((samples.length / audio.sampling_rate) * 1000) };
   };
 }
 
@@ -94,7 +94,9 @@ parentPort!.on("message", async (job: Job) => {
       throw Object.assign(new Error(String(e)), { loading: true });
     });
     slowDown(job);
-    parentPort!.postMessage({ id: job.id, value: await run(job) });
+    const value = await run(job);
+    const bytes = (value as { bytes?: Uint8Array<ArrayBuffer> } | null)?.bytes;
+    parentPort!.postMessage({ id: job.id, value }, bytes ? [bytes.buffer] : []);
   } catch (e) {
     parentPort!.postMessage({ id: job.id, error: String(e).slice(0, 300), loading: (e as { loading?: boolean }).loading === true });
   }

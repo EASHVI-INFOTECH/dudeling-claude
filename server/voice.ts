@@ -66,29 +66,43 @@ export const spokenText = (raw: string): string => parseCues(raw).text;
  * processes, so a line made by one is found by the other.
  */
 const audioDir = () => privateDir("audio");
-const audioFile = (text: string) => join(audioDir(), `${createHash("sha256").update(`${VOICE}|${text}`).digest("hex").slice(0, 32)}.json`);
-function readAudio(text: string): Spoken | null {
+const audioFile = (text: string) => join(audioDir(), createHash("sha256").update(`${VOICE}|${text}`).digest("hex").slice(0, 32));
+type Audio = { bytes: Buffer; durationMs: number };
+function readAudio(text: string): Audio | null {
+  const path = audioFile(text);
   try {
-    const s = JSON.parse(readFileSync(audioFile(text), "utf8")) as Spoken;
-    return s.wav && s.durationMs ? s : null;
+    const bytes = readFileSync(path + ".wav");
+    if (bytes.length < 44 || bytes.toString("ascii", 0, 4) !== "RIFF" || !bytes.readUInt32LE(28) || bytes.readUInt32LE(40) !== bytes.length - 44) return null;
+    return { bytes, durationMs: Math.round((bytes.length - 44) * 1000 / bytes.readUInt32LE(28)) };
   } catch {
-    return null;
+    try {
+      const old = JSON.parse(readFileSync(path + ".json", "utf8")) as Spoken;
+      return { bytes: Buffer.from(old.wav, "base64"), durationMs: old.durationMs };
+    } catch { return null; }
   }
 }
 let swept = 0;
-function sweepAudio(now = Date.now()) {
-  if (now - swept < 60 * 60_000) return;
+let writtenSinceSweep = 0;
+function sweepAudio(written: number, now = Date.now()) {
+  writtenSinceSweep += written;
+  if (now - swept < 3600_000 && writtenSinceSweep < 8 * 1024 * 1024) return;
   swept = now;
-  try {
-    for (const f of readdirSync(audioDir())) if (now - statSync(join(audioDir(), f)).mtimeMs > 24 * 60 * 60_000) rmSync(join(audioDir(), f), { force: true });
-  } catch {
-    /* best effort */
+  writtenSinceSweep = 0;
+  const files = readdirSync(audioDir()).filter(f => /\.(wav|json)$/.test(f)).map(name => {
+    const path = join(audioDir(), name);
+    return { path, stat: statSync(path, { throwIfNoEntry: false }) };
+  }).sort((a, b) => (b.stat?.mtimeMs ?? 0) - (a.stat?.mtimeMs ?? 0));
+  let bytes = 0;
+  for (const { path, stat } of files) {
+    if (!stat) continue;
+    bytes += stat.size;
+    if (bytes > 192 * 1024 * 1024 || now - stat.mtimeMs > 86400_000) rmSync(path, { force: true });
   }
 }
 
 interface Waiter {
   group?: string;
-  resolve: (s: Spoken) => void;
+  resolve: (s: Audio) => void;
   reject: (e: Error) => void;
 }
 interface Pending {
@@ -97,7 +111,7 @@ interface Pending {
   order: number;
   waiters: Waiter[];
 }
-const cache = new Map<string, Spoken>();
+const cache = new Map<string, Audio>();
 const pending = new Map<string, Pending>();
 let making: Pending | null = null;
 let order = 0;
@@ -118,21 +132,36 @@ function release() {
   next();
 }
 
-function remember(text: string, s: Spoken) {
+function remember(text: string, s: Audio) {
   cache.delete(text);
   cache.set(text, s);
-  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
+  let bytes = 0;
+  for (const item of cache.values()) bytes += item.bytes.length;
+  for (const [key, item] of cache) {
+    if (cache.size <= CACHE_MAX && bytes <= 16 * 1024 * 1024) break;
+    bytes -= item.bytes.length;
+    cache.delete(key);
+  }
 }
 
 /** One piece's audio. Asking again for a piece that's waiting can only make it more urgent. */
-export function speak(text: string, { priority = "current", group }: SpeakOptions = {}): Promise<Spoken> {
+export async function speak(text: string, opts?: SpeakOptions): Promise<Spoken> {
+  const { bytes, durationMs } = await enqueue(text, opts);
+  return { wav: bytes.toString("base64"), durationMs };
+}
+
+export function prefetch(text: string, opts?: SpeakOptions) {
+  void enqueue(text, opts).catch(() => {});
+}
+
+function enqueue(text: string, { priority = "current", group }: SpeakOptions = {}): Promise<Audio> {
   const key = text.trim();
   const hit = cache.get(key) ?? readAudio(key);
   if (hit) {
     remember(key, hit);
     return Promise.resolve(hit);
   }
-  return new Promise<Spoken>((resolve, reject) => {
+  return new Promise<Audio>((resolve, reject) => {
     const rank = PRIORITIES.indexOf(priority);
     let job = pending.get(key);
     if (!job) pending.set(key, (job = { text: key, rank, order: order++, waiters: [] }));
@@ -143,11 +172,12 @@ export function speak(text: string, { priority = "current", group }: SpeakOption
 }
 
 /** Drop what's waiting for a group. The piece being made finishes (and is cached). */
+const belongs = (w: Waiter, group: string) => w.group === group || w.group?.startsWith(group + ":");
 export function cancel(group: string) {
   for (const job of pending.values()) {
     if (job === making) continue;
-    for (const w of job.waiters) if (w.group === group) w.reject(new SpeechCancelled());
-    job.waiters = job.waiters.filter((w) => w.group !== group);
+    for (const w of job.waiters) if (belongs(w, group)) w.reject(new SpeechCancelled());
+    job.waiters = job.waiters.filter((w) => !belongs(w, group));
     if (!job.waiters.length) pending.delete(job.text);
   }
 }
@@ -155,7 +185,7 @@ export function cancel(group: string) {
 /** The learner cut in: what was urgent for this board isn't any more. It stays queued, behind the answer. */
 export function demote(group: string) {
   const ahead = PRIORITIES.indexOf("ahead");
-  for (const job of pending.values()) if (job !== making && job.waiters.every((w) => w.group === group)) job.rank = ahead;
+  for (const job of pending.values()) if (job !== making && job.waiters.every((w) => belongs(w, group))) job.rank = ahead;
 }
 
 function next() {
@@ -179,11 +209,12 @@ async function make(job: Pending) {
     // Another copy of the plugin may have made it while it waited here.
     let s = readAudio(job.text);
     if (!s) {
-      s = await engineThread.run<Spoken>({ kind: "voice", text: job.text });
+      const made = await engineThread.run<{ bytes: Uint8Array<ArrayBuffer>; durationMs: number }>({ kind: "voice", text: job.text });
+      s = { bytes: Buffer.from(made.bytes.buffer, made.bytes.byteOffset, made.bytes.byteLength), durationMs: made.durationMs };
       failedAt = 0;
       try {
-        writePrivate(audioFile(job.text), s);
-        sweepAudio();
+        writePrivate(audioFile(job.text) + ".wav", s.bytes);
+        sweepAudio(s.bytes.length);
       } catch {
         /* the file cache is best effort */
       }

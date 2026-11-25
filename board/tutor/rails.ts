@@ -145,6 +145,7 @@ export function repairLesson(
   bounds: Viewport | Box = SECTION_SAFE_AREA,
   knownIds: Iterable<string> = [],
   limits: { steps: number; actions: number } = { steps: MAX_STEPS, actions: MAX_ACTIONS },
+  idPrefix = "",
 ): RepairResult {
   const area: Box = "width" in bounds ? safeArea(bounds) : { ...bounds };
   const issues: string[] = [];
@@ -157,9 +158,10 @@ export function repairLesson(
   let repaired = 0;
   let autoId = 0;
 
+  const reserved = new Set(input.steps.flatMap(step => (step.actions ?? []).map(a => a && typeof a === "object" && "id" in a ? a.id : undefined)));
   const fresh = (base: string) => {
     let id = base;
-    while (drawn.has(id)) id = `${base}-${++autoId}`;
+    while (drawn.has(id) || reserved.has(id)) id = `${base}-${++autoId}`;
     return id;
   };
 
@@ -219,7 +221,7 @@ export function repairLesson(
      * different kind of thing is a mistake and gets a fresh id.
      */
     const claimId = (): string => {
-      let id = typeof a.id === "string" && a.id.trim() ? a.id.trim() : mark(`${type.replace("draw_", "")}-${autoId + 1}`);
+      let id = typeof a.id === "string" && a.id.trim() ? a.id.trim() : mark(fresh(`${idPrefix}${type.replace("draw_", "")}-${++autoId}`));
       if (id.startsWith("section-")) id = mark(`el-${id}`); // reserved for the agent's section frames
       if (drawn.has(id)) {
         if (kindOf.get(id) === type) {

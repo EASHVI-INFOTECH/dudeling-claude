@@ -17,6 +17,7 @@ import { actionSchema } from "./actions.ts";
 import * as boards from "./boards.ts";
 import * as engine from "./engine.ts";
 import { CLEAR_BOARD_DESCRIPTION, DRAW_DESCRIPTION, GUIDE, OPEN_BOARD_DESCRIPTION, REPLY_AND_LISTEN_DESCRIPTION, TEACH_PART_DESCRIPTION } from "./guide.ts";
+import { CHUNK, ink } from "./ink.ts";
 import * as inbox from "./inbox.ts";
 import { changed, listen, type Heard } from "./listen.ts";
 import { unsupportedHere, unsupportedMessage } from "./models.ts";
@@ -62,12 +63,19 @@ const SPEAK_WAIT_MS = 15_000;
 const NO_BOARD = "No such board (it may have expired). Open a new one with open_board.";
 
 const boardId = z.string().max(40).describe("From open_board.");
+const viewScope = { topic: z.number().int().nonnegative().optional(), view: z.string().max(40).optional() };
 const spokenReply = z.string().trim().min(1).max(800);
 
 /** Start on a line's audio before the board asks for it. */
 function makeAudio(id: string, line: string, priority: voice.Priority) {
   if (voice.voiceStatus() !== "ready") return;
-  for (const piece of speechPieces(voice.spokenText(line))) void engine.speak(piece, { priority, group: id }).catch(() => {});
+  for (const piece of speechPieces(voice.spokenText(line))) void engine.prefetch(piece, { priority, group: id }).catch(() => {});
+}
+
+async function releaseBranch(id: string, answer: "right" | "wrong") {
+  const result = boards.release(id, answer);
+  if ("discarded" in result && result.discarded) await engine.cancel(id + ":" + result.discarded);
+  return result;
 }
 
 function describeHeard(result: Heard): string {
@@ -95,7 +103,7 @@ function describeHeard(result: Heard): string {
   return `${lines.join("\n")}\n\n${next}`;
 }
 
-export function createDudelingServer(boardHtml: string): McpServer {
+export function createDudelingServer(boardHtml: string | (() => string) = loadBoardHtml): McpServer {
   const server = new McpServer({ name: "dudeling", version: VERSION });
 
   registerAppTool(
@@ -159,8 +167,10 @@ export function createDudelingServer(boardHtml: string): McpServer {
       if ("error" in r) return failed(r.error);
       // Start making the part's audio now, in order, before the board asks for it (a prepared part: behind
       // everything that plays sooner).
-      steps.forEach((s, i) => makeAudio(board_id, s.say, i || ahead ? "ahead" : "next"));
-      if (check) makeAudio(board_id, checkLine(check.question), "ahead");
+      const group = ahead ? board_id + ":" + r.seq : board_id;
+      if (r.discarded) await engine.cancel(board_id + ":" + r.discarded);
+      steps.forEach((s, i) => makeAudio(group, s.say, i || ahead ? "ahead" : "next"));
+      if (check) makeAudio(group, checkLine(check.question), "ahead");
       if (ahead) {
         const other = when === "after_right" ? "after_wrong" : "after_right";
         return ok(
@@ -202,7 +212,7 @@ export function createDudelingServer(boardHtml: string): McpServer {
         boards.talk(board_id, say);
         makeAudio(board_id, say, "reply");
       }
-      if (answer) boards.release(board_id, answer);
+      if (answer) await releaseBranch(board_id, answer);
       if (resume) boards.setPaused(board_id, false);
       const t0 = Date.now();
       const result = await listen(board_id, ctx.mcpReq.signal);
@@ -225,7 +235,7 @@ export function createDudelingServer(boardHtml: string): McpServer {
       if ("error" in r) return failed(r.error);
       makeAudio(board_id, text, "reply");
       if (!answer) return ok("Dudeling is saying it. Keep your chat text to a word or two.");
-      const rel = boards.release(board_id, answer);
+      const rel = await releaseBranch(board_id, answer);
       const playing = !("error" in rel) && rel.played;
       return ok(
         playing
@@ -304,17 +314,22 @@ export function createDudelingServer(boardHtml: string): McpServer {
       inputSchema: z.object({ board_id: boardId }),
       annotations: LOOKS,
     },
-    async ({ board_id }) => {
-      const text = boards.summary(board_id);
-      log(`look_at_board ${board_id}`);
-      if (!text) return failed(NO_BOARD);
+    async ({ board_id }, ctx) => {
+      const board = boards.getBoard(board_id);
+      if (!board) return failed(NO_BOARD);
+      const live = boards.hasView(board_id);
+      const request = live ? boards.requestCapture(board_id) : undefined;
+      if (request) await changed(board_id, () => boards.snapshot(board_id)?.request === request, 2500, ctx.mcpReq.signal);
       const snap = boards.snapshot(board_id);
-      return {
-        content: [
-          { type: "text", text: snap ? `${text}\n\nThe learner has drawn on the board too (${snap.note}). Here's the whole board as they see it:` : text },
-          ...(snap ? [{ type: "image" as const, data: snap.image, mimeType: snap.mimeType }] : []),
-        ],
-      };
+      const fresh = !!request && snap?.request === request;
+      const description = snap?.summary
+        ? `${fresh ? "Current canvas" : "Last captured canvas"} (${snap.at})\n${snap.summary}`
+        : live ? "The canvas has not reported its current contents." : "Lesson plan (screen visibility unconfirmed)\n" + boards.summary(board_id);
+      const note = snap?.note ? `\nThe learner has drawn on the board (${snap.note}).` : "";
+      return { content: [
+        { type: "text", text: description + note },
+        ...(snap?.image ? [{ type: "image" as const, data: snap.image, mimeType: snap.mimeType }] : []),
+      ] };
     },
   );
 
@@ -340,6 +355,7 @@ export function createDudelingServer(boardHtml: string): McpServer {
         view: z.string().max(40).optional(),
         /** This view is the one to play from now on (sent when it appears). */
         take: z.boolean().optional(),
+        capture: z.string().max(32).optional(),
         wait_ms: z.number().int().min(0).max(25_000).optional(),
         /** What the board last knew of Claude's state: a change answers at once. */
         claude: z.enum(["listening", "busy", "away"]).optional(),
@@ -347,16 +363,18 @@ export function createDudelingServer(boardHtml: string): McpServer {
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, since, view, take, wait_ms, claude }, ctx) => {
+    async ({ board_id, since, view, take, wait_ms, claude, capture }, ctx) => {
       if (!boards.getBoard(board_id)) return failed("No such board.", { gone: true });
       if (view && take) boards.takeView(board_id, view);
       const superseded = () => !!view && !boards.isLiveView(board_id, view);
-      const news = () => superseded() || (!!claude && boards.claude(board_id).state !== claude) || !!boards.updates(board_id, since)?.events.length;
-      await changed(board_id, news, wait_ms ?? 0, ctx.mcpReq.signal);
+      const news = () => (!!view && boards.captureRequest(board_id) !== capture) || superseded() || (!!claude && boards.claude(board_id).state !== claude) || !!boards.updates(board_id, since)?.events.length;
+      // A busy/listening lease can expire while no one is writing any files.
+      const held = claude && claude !== "away" ? boards.claude(board_id).until - Date.now() : Infinity;
+      await changed(board_id, news, Math.max(0, Math.min(wait_ms ?? 0, held)), ctx.mcpReq.signal);
       const u = boards.updates(board_id, since);
       if (!u) return failed("No such board.", { gone: true });
       if (superseded()) return ok("A newer view of this board is live.", { superseded: true, ...u });
-      return ok(`${u.events.length} update(s)`, { ...u, played: boards.progress(board_id), claude: boards.claude(board_id).state });
+      return ok(`${u.events.length} update(s)`, { ...u, capture: boards.captureRequest(board_id), played: boards.progress(board_id), claude: boards.claude(board_id).state });
     },
   );
 
@@ -366,13 +384,12 @@ export function createDudelingServer(boardHtml: string): McpServer {
     {
       title: "Board progress",
       description: "How far the board has played (used by the whiteboard itself).",
-      inputSchema: z.object({ board_id: boardId, seq: z.number().int().min(0), step: z.number().int().min(0).max(20), narrating: z.boolean(), view: z.string().max(40).optional() }),
+      inputSchema: z.object({ board_id: boardId, seq: z.number().int().min(0), step: z.number().int().min(0).max(20), narrating: z.boolean(), ...viewScope }),
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, seq, step, narrating, view }) => {
-      if (view && !boards.isLiveView(board_id, view)) return ok("An older view.");
-      return boards.setProgress(board_id, seq, step, narrating) ? ok("Saved.") : failed("No such board.");
+    async ({ board_id, seq, step, narrating, view, topic }) => {
+      return boards.setProgress(board_id, seq, step, narrating, topic, view) ? ok("Saved.") : failed("No such board.");
     },
   );
 
@@ -386,6 +403,7 @@ export function createDudelingServer(boardHtml: string): McpServer {
         board_id: boardId,
         text: z.string().trim().min(1).max(2000),
         how: z.enum(["spoken", "typed"]),
+        ...viewScope,
         interrupted: z.boolean().optional(),
         check: z.string().max(400).optional(),
         during: z.string().max(700).optional(),
@@ -393,8 +411,8 @@ export function createDudelingServer(boardHtml: string): McpServer {
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, ...message }) => {
-      const r = inbox.put(board_id, message);
+    async ({ board_id, topic, view, ...message }) => {
+      const r = inbox.put(board_id, message, topic, view);
       log(`learner_said ${board_id} ${message.how} ${message.text.length} chars${"error" in r ? ` failed: ${r.error}` : ""}`);
       if ("error" in r) return failed(r.error);
       void engine.hold();
@@ -408,12 +426,12 @@ export function createDudelingServer(boardHtml: string): McpServer {
     {
       title: "Take back a message",
       description: "Take back a message Claude hasn't received, to send it through the chat (used by the whiteboard itself).",
-      inputSchema: z.object({ board_id: boardId, id: z.string().max(60) }),
+      inputSchema: z.object({ board_id: boardId, id: z.string().max(60), ...viewScope }),
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, id }) => {
-      const withdrawn = inbox.withdraw(board_id, id);
+    async ({ board_id, id, topic, view }) => {
+      const withdrawn = boards.accepts(board_id, topic, view) && inbox.withdraw(board_id, id, topic);
       return ok(withdrawn ? "Taken back." : "Claude has it.", { withdrawn });
     },
   );
@@ -441,6 +459,17 @@ export function createDudelingServer(boardHtml: string): McpServer {
     },
   );
 
+  registerAppTool(server, "board_ink", {
+    title: "Editable board drawing", description: "Save or restore one piece of the learner's drawing.",
+    inputSchema: z.object({ board_id: boardId, topic: z.number().int().nonnegative(), view: z.string().max(40),
+      part: z.number().int().min(0).max(4095), total: z.number().int().min(1).max(4096).optional(),
+      revision: z.number().int().positive().optional(), data: z.string().max(CHUNK).optional() }),
+    annotations: CHANGES, _meta: FROM_BOARD,
+  }, async req => {
+    const result = ink(req);
+    return result ? ok("ok", result) : failed("Drawing or view changed.");
+  });
+
   registerAppTool(
     server,
     "learner_drew",
@@ -452,12 +481,15 @@ export function createDudelingServer(boardHtml: string): McpServer {
         image: z.string().max(boards.MAX_SNAPSHOT_CHARS),
         mime_type: z.enum(["image/png", "image/jpeg"]),
         note: z.string().max(300),
+        ...viewScope,
+        summary: z.string().max(16000).optional(),
+        request: z.string().max(32).optional(),
       }),
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, image, mime_type, note }) => {
-      const saved = boards.setSnapshot(board_id, image, note, mime_type);
+    async ({ board_id, image, mime_type, note, ...scope }) => {
+      const saved = boards.setSnapshot(board_id, image, note, mime_type, scope);
       log(`learner_drew ${board_id} ${saved ? `${Math.round(image.length / 1024)} KB` : "failed"}`);
       return saved ? ok("Saved.") : failed("Couldn't save the drawing.");
     },
@@ -487,11 +519,12 @@ export function createDudelingServer(boardHtml: string): McpServer {
       }
       if (!text.trim()) return failed("Nothing to say.");
       if (status !== "ready") return failed("Dudeling's voice isn't available here.", { unavailable: status });
-      const making = engine.speak(text, { priority: priority ?? "current", group: board_id });
+      const opts = { priority: priority ?? "current", group: board_id };
       if (bump) {
-        making.catch(() => {});
+        void engine.prefetch(text, opts).catch(() => {});
         return ok("Moved up.");
       }
+      const making = engine.speak(text, opts);
       try {
         const t0 = performance.now();
         let timer!: NodeJS.Timeout;
@@ -518,11 +551,13 @@ export function createDudelingServer(boardHtml: string): McpServer {
     {
       title: "Learner is talking",
       description: "The learner pressed Talk or started talking (used by the whiteboard itself).",
-      inputSchema: z.object({ board_id: boardId, what: z.enum(["talk_on", "cut_in"]) }),
+      inputSchema: z.object({ board_id: boardId, ...viewScope, what: z.enum(["talk_on", "cut_in"]) }),
       annotations: CHANGES,
       _meta: FROM_BOARD,
     },
-    async ({ board_id, what }) => {
+    async ({ board_id, what, view, topic }) => {
+      if (!boards.accepts(board_id, topic, view)) return failed("Board or topic changed.");
+      boards.touchBoard(board_id);
       if (what === "talk_on") void engine.prepare("hearing");
       else await engine.interrupt(board_id);
       return ok("ok");
@@ -547,12 +582,13 @@ export function createDudelingServer(boardHtml: string): McpServer {
     },
   );
 
+  let html: string | undefined;
   const boardPage = (uri: string) => async () => ({
     contents: [
       {
         uri,
         mimeType: RESOURCE_MIME_TYPE,
-        text: boardHtml,
+        text: (html ??= typeof boardHtml === "string" ? boardHtml : boardHtml()),
         // No network at all: the fonts are in the page and the voice comes from this plugin.
         // The microphone: the learner talks to Dudeling on the board (asked for when they press Talk).
         _meta: { ui: { csp: { resourceDomains: [], connectDomains: [] }, permissions: { microphone: {} }, prefersBorder: true } },
@@ -560,7 +596,8 @@ export function createDudelingServer(boardHtml: string): McpServer {
     ],
   });
   registerAppResource(server, "Dudeling whiteboard", BOARD_URI, { description: "A whiteboard that draws a lesson in time with its narration." }, boardPage(BOARD_URI));
-  registerAppResource(server, "Dudeling whiteboard (older chats)", LEGACY_BOARD_URI, { description: "The same whiteboard, for boards opened before this version." }, boardPage(LEGACY_BOARD_URI));
+  for (const uri of [LEGACY_BOARD_URI, "ui://dudeling/board-1.0.0-rc.5.html", "ui://dudeling/board-1.0.0-rc.6.html"])
+    registerAppResource(server, `Dudeling whiteboard (${uri})`, uri, { description: "Whiteboard for an existing chat." }, boardPage(uri));
 
   server.registerPrompt(
     "teach-me",

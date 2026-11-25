@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { getBoard, isBoardId } from "./boards.ts";
+import { accepts, getBoard, isBoardId, topicOf, touchBoard, withBoard } from "./boards.ts";
 import { privateDir, renameWhenFree, stateDir, writePrivate } from "./store.ts";
 
 export interface Message {
@@ -23,27 +23,33 @@ export interface Message {
 
 const MAX_WAITING = 50;
 const MESSAGE_ID = /^m_\d{13}_\d{6}_[A-Za-z0-9_-]{8}$/;
-const dirOf = (board: string) => join(stateDir(), `${board}.inbox`);
-const waiting = (board: string) =>
-  existsSync(dirOf(board))
-    ? readdirSync(dirOf(board))
+const nameOf = (board: string, topic: number) => topic ? `${board}.${topic}.inbox` : `${board}.inbox`;
+export const inboxDir = (board: string, topic: number) => privateDir(nameOf(board, topic));
+const dirOf = (board: string, topic: number) => join(stateDir(), nameOf(board, topic));
+const waiting = (board: string, topic: number) =>
+  existsSync(dirOf(board, topic))
+    ? readdirSync(dirOf(board, topic))
         .filter((f) => f.endsWith(".json") && MESSAGE_ID.test(f.slice(0, -5)))
         .sort()
     : [];
 
 let n = 0;
 /** Leave a message. Its id, or why it couldn't be left. */
-export function put(board: string, message: Message): { id: string } | { error: string } {
-  if (!getBoard(board)) return { error: "No such board." };
-  privateDir(`${board}.inbox`);
-  if (waiting(board).length >= MAX_WAITING) return { error: "Too many messages are waiting." };
-  const id = `m_${Date.now()}_${String(n++ % 1e6).padStart(6, "0")}_${randomBytes(6).toString("base64url")}`;
-  writePrivate(join(dirOf(board), `${id}.json`), message);
-  return { id };
+export function put(board: string, message: Message, expectedTopic?: number, view?: string): { id: string } | { error: string } {
+  return withBoard(board, (_db, b) => {
+    if (!accepts(board, expectedTopic, view, b)) return { error: "Board or topic changed." };
+    const topic = topicOf(b);
+    inboxDir(board, topic);
+    if (waiting(board, topic).length >= MAX_WAITING) return { error: "Too many messages are waiting." };
+    const id = `m_${Date.now()}_${String(n++ % 1e6).padStart(6, "0")}_${randomBytes(6).toString("base64url")}`;
+    writePrivate(join(dirOf(board, topic), `${id}.json`), message);
+    touchBoard(board);
+    return { id };
+  }) ?? { error: "No such board." };
 }
 
-function claim(board: string, file: string): Message | null {
-  const from = join(dirOf(board), file);
+function claim(board: string, topic: number, file: string): Message | null {
+  const from = join(dirOf(board, topic), file);
   const taken = `${from}.${process.pid}.taken`;
   try {
     renameWhenFree(from, taken);
@@ -60,12 +66,17 @@ function claim(board: string, file: string): Message | null {
 }
 
 /** Everything waiting, oldest first. */
-export function take(board: string): Message[] {
+export function take(board: string, topic = topicOf(getBoard(board))): Message[] {
   if (!isBoardId(board)) return [];
-  return waiting(board).flatMap((file) => claim(board, file) ?? []);
+  return waiting(board, topic).flatMap((file) => claim(board, topic, file) ?? []);
 }
 
 /** Take a message back (to send it through the chat instead). False if Claude already has it. */
-export function withdraw(board: string, id: string): boolean {
-  return isBoardId(board) && MESSAGE_ID.test(id) && claim(board, `${id}.json`) !== null;
+export function withdraw(board: string, id: string, topic = topicOf(getBoard(board))): boolean {
+  return isBoardId(board) && MESSAGE_ID.test(id) && claim(board, topic, `${id}.json`) !== null;
+}
+
+/** Checking the topic and claiming its messages share the same lock as clear_board. */
+export function takeCurrent(board: string, topic: number) {
+  return withBoard(board, (_db, b) => topicOf(b) === topic ? take(board, topic) : undefined);
 }

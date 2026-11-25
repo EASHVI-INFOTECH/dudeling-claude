@@ -48,6 +48,10 @@ export class PlayOrder<E extends Ev> {
     return out;
   }
 
+  get pending(): E[] {
+    return Object.values(this.held) as E[];
+  }
+
   /** What's prepared and waiting, for the tool results. */
   get waiting(): Answer[] {
     return (["right", "wrong"] as const).filter((a) => this.held[a]);

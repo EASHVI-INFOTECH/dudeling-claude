@@ -66,14 +66,15 @@ export function repairBySection(title: string, steps: PlayStep[]): PlayStep[] {
       else if (a.type === "go_to") section = a.section;
       return;
     }
-    groups.set(section, [...(groups.get(section) ?? []), i]);
+    if (!groups.has(section)) groups.set(section, []);
+    groups.get(section)!.push(i);
   });
   const ids = steps.flatMap((s) => s.actions.map((a) => ("id" in a && typeof a.id === "string" ? a.id : ""))).filter(Boolean);
   const out = [...steps];
-  for (const [, idx] of groups) {
+  for (const [group, idx] of groups) {
     const mine = new Set(idx.flatMap((i) => steps[i].actions.map((a) => ("id" in a && typeof a.id === "string" ? a.id : ""))));
     const lesson: Lesson = { title, steps: idx.map((i) => steps[i]) };
-    const fixed = repairLesson(lesson, undefined, ids.filter((id) => !mine.has(id)), WHOLE_BOARD).lesson.steps;
+    const fixed = repairLesson(lesson, undefined, ids.filter((id) => !mine.has(id)), WHOLE_BOARD, group ? group + "-" : "").lesson.steps;
     idx.forEach((i, k) => (out[i] = { ...steps[i], ...fixed[k] }));
   }
   return out;

@@ -108,8 +108,11 @@ export class Voice {
     })();
   }
 
+  get audible() { return this.talking > 0 && !this.muted; }
+
   setMuted(muted: boolean) {
     this.muted = muted;
+    this.onTalking(this.audible);
     if (this.gain) this.gain.gain.value = muted ? 0 : 1;
     if (muted && typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
   }
@@ -151,6 +154,8 @@ export class Voice {
   private load(piece: string, urgency: Urgency): Promise<AudioBuffer | null> {
     const hit = this.cache.get(piece);
     if (hit) {
+      this.cache.delete(piece);
+      this.cache.set(piece, hit);
       if (!hit.buffer && RANK[urgency] < hit.rank) {
         hit.rank = RANK[urgency];
         hit.urgency = urgency;
@@ -163,13 +168,27 @@ export class Voice {
       .then((wav) => (wav && this.ctx ? this.ctx.decodeAudioData(decodeBase64(wav)) : null))
       .catch((e) => (this.report(`speak failed (${String(e).slice(0, 160)})`), null))
       .then((buffer) => {
-        if (buffer) loading.buffer = buffer;
+        if (buffer && this.cache.get(piece) === loading) {
+          loading.buffer = buffer;
+          this.trimCache();
+        }
         else if (this.cache.get(piece) === loading) this.cache.delete(piece); // failures aren't kept
         return buffer;
       });
     this.cache.set(piece, loading);
-    while (this.cache.size > CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
+    this.trimCache();
     return loading.audio;
+  }
+
+  private trimCache() {
+    const size = (entry: Loading) => entry.buffer ? entry.buffer.length * entry.buffer.numberOfChannels * 4 : 0;
+    let bytes = 0;
+    for (const entry of this.cache.values()) bytes += size(entry);
+    for (const [key, entry] of this.cache) {
+      if (bytes <= 24 * 1024 * 1024 && this.cache.size <= CACHE_MAX) break;
+      bytes -= size(entry);
+      this.cache.delete(key);
+    }
   }
 
   /** Ask until it's made. Each request is short, so however busy the Mac is none hits the chat app's 60 s limit. */
@@ -265,7 +284,7 @@ export class Voice {
   }
 
   private track(s: Spoken, take: Take): Spoken {
-    if (this.talking++ === 0) this.onTalking(true);
+    if (this.talking++ === 0) this.onTalking(this.audible);
     void s.done
       .catch(() => {})
       .then(() => {

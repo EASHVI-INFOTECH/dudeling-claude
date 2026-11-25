@@ -31,7 +31,7 @@ after(async () => {
 test("lists the live tools (open_board has the whiteboard) and the guide; no one-shot teach", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["board_log", "board_progress", "board_updates", "clear_board", "draw", "dudeling_guide", "learner_active", "learner_drew", "learner_said", "learner_unsend", "look_at_board", "open_board", "pause_board", "reply_and_listen", "resume_board", "say", "speak", "teach_part", "transcribe"]);
+  assert.deepEqual(names, ["board_ink", "board_log", "board_progress", "board_updates", "clear_board", "draw", "dudeling_guide", "learner_active", "learner_drew", "learner_said", "learner_unsend", "look_at_board", "open_board", "pause_board", "reply_and_listen", "resume_board", "say", "speak", "teach_part", "transcribe"]);
   const open = tools.find((t) => t.name === "open_board")!;
   assert.equal((open._meta as any)?.ui?.resourceUri, BOARD_URI);
   assert.match(open.description ?? "", /reply_and_listen/);
@@ -273,9 +273,11 @@ test("teach_part section: a subtopic is a new box on the same board, not a clear
 test("the board's address changes with every version (Claude Desktop keeps a page it has read); the old one still answers", async () => {
   const { VERSION } = await import("../server/version.ts");
   assert.equal(BOARD_URI, `ui://dudeling/board-${VERSION}.html`);
-  const legacy = await client.readResource({ uri: "ui://dudeling/board.html" });
   const current = await client.readResource({ uri: BOARD_URI });
-  assert.equal((legacy.contents[0] as { text: string }).text, (current.contents[0] as { text: string }).text);
+  for (const suffix of ["board.html", "board-1.0.0-rc.5.html", "board-1.0.0-rc.6.html"]) {
+    const legacy = await client.readResource({ uri: "ui://dudeling/" + suffix });
+    assert.equal((legacy.contents[0] as { text: string }).text, (current.contents[0] as { text: string }).text);
+  }
 });
 
 test("prepared parts: held off the board until the verdict, then played; tool results guide the loop", async () => {

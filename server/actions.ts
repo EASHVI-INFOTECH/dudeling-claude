@@ -34,8 +34,8 @@ const RULES: Record<(typeof ACTION_TYPES)[number], Rule[]> = {
   draw_freehand: [["points", path, `2-${POINTS_MAX} points as [x,y]`]],
   point_at: TARGET,
   circle: TARGET,
-  underline: TARGET,
-  highlight: TARGET,
+  underline: [["target", text, "the id of something already drawn"]],
+  highlight: [["target", text, "the id of something already drawn"]],
   wait: [],
 };
 const SHORT = ["id", "label", "color", "fill", "shape", "text"];

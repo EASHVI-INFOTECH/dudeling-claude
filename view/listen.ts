@@ -32,7 +32,8 @@ export class Listener {
   private frames: Float32Array[] = [];
   private preroll: Float32Array[] = [];
   private speaking = false;
-  private loudSince = 0;
+  private recentLevels: { at: number; ms: number; level: number }[] = [];
+  private noiseFloor = 0.005;
   private lastLoud = 0;
   private startedAt = 0;
   /** Bumped by every start and stop: whatever an older one was waiting for gives up. */
@@ -63,35 +64,36 @@ export class Listener {
     try {
       this.ctx = new AudioContext();
       await this.ctx.resume();
+      if (attempt !== this.attempt) return false;
+      stream.getAudioTracks()[0]?.addEventListener("ended", () => attempt === this.attempt && this.events.ended?.());
+      const src = this.ctx.createMediaStreamSource(stream);
+      // ScriptProcessor: deprecated but works everywhere (incl. sandboxed iframes, where AudioWorklet modules can't load).
+      this.node = this.ctx.createScriptProcessor(2048, 1, 1);
+      this.node.onaudioprocess = (e) => this.feed(new Float32Array(e.inputBuffer.getChannelData(0)));
+      src.connect(this.node);
+      this.node.connect(this.ctx.destination); // needed for onaudioprocess to fire; outputs silence
+      return true;
     } catch (e) {
       if (attempt !== this.attempt) return false; // closed by stop() while resuming
       this.stop();
       throw e;
     }
-    if (attempt !== this.attempt) return false;
-    stream.getAudioTracks()[0]?.addEventListener("ended", () => attempt === this.attempt && this.events.ended?.());
-    const src = this.ctx.createMediaStreamSource(stream);
-    // ScriptProcessor: deprecated but works everywhere (incl. sandboxed iframes, where AudioWorklet modules can't load).
-    this.node = this.ctx.createScriptProcessor(2048, 1, 1);
-    this.node.onaudioprocess = (e) => this.feed(new Float32Array(e.inputBuffer.getChannelData(0)));
-    src.connect(this.node);
-    this.node.connect(this.ctx.destination); // needed for onaudioprocess to fire; outputs silence
-    return true;
   }
 
   stop() {
     this.attempt++;
     if (this.node) this.node.onaudioprocess = null;
-    this.node?.disconnect();
+    try { this.node?.disconnect(); } catch { /* setup may have failed before connection */ }
     this.stream?.getTracks().forEach((t) => t.stop());
     void this.ctx?.close().catch(() => {});
     this.node = null;
     this.stream = null;
     this.ctx = null;
+    this.noiseFloor = 0.005;
     this.speaking = false;
     this.frames = [];
     this.preroll = [];
-    this.loudSince = 0;
+    this.recentLevels = [];
   }
 
   private feed(frame: Float32Array) {
@@ -102,16 +104,25 @@ export class Listener {
     const level = Math.sqrt(sum / frame.length);
     this.events.level?.(Math.min(1, level * 12));
     const now = performance.now();
-    const threshold = this.dudelingTalking ? 0.06 : 0.02;
-    const minSpeechMs = this.dudelingTalking ? 350 : 150;
+    // Count voiced frames in a short window. Consonants and gaps between syllables
+    // should not reset an otherwise clear interruption.
+    const threshold = Math.max(this.dudelingTalking ? 0.026 : 0.014,
+      this.noiseFloor * (this.dudelingTalking ? 3.5 : 2.8));
+    const minSpeechMs = this.dudelingTalking ? 130 : 95;
     const loud = level > threshold;
 
     if (!this.speaking) {
       this.preroll.push(frame);
       while (this.preroll.length * frame.length > (PREROLL_MS / 1000) * rate) this.preroll.shift();
+      if (!loud) this.noiseFloor += 0.05 * (level - this.noiseFloor);
+      this.recentLevels = this.recentLevels.filter(f => now - f.at < 240);
       if (loud) {
-        this.loudSince ||= now;
-        if (now - this.loudSince >= minSpeechMs) {
+        this.recentLevels.push({ at: now, ms: frame.length * 1000 / rate, level });
+        const voicedMs = this.recentLevels.reduce((sum, f) => sum + f.ms, 0);
+        const levels = this.recentLevels.map(f => f.level);
+        const varied = Math.max(...levels) > Math.min(...levels) * 1.15;
+        if (voicedMs >= 170 && !varied) this.noiseFloor += 0.12 * (level - this.noiseFloor);
+        if (voicedMs >= minSpeechMs && varied) {
           this.speaking = true;
           this.startedAt = now;
           this.lastLoud = now;
@@ -119,15 +130,15 @@ export class Listener {
           this.preroll = [];
           this.events.speechStart();
         }
-      } else this.loudSince = 0;
+      }
       return;
     }
 
     this.frames.push(frame);
-    if (level > 0.02) this.lastLoud = now;
+    if (level > Math.max(0.014, this.noiseFloor * 2.2)) this.lastLoud = now;
     if (now - this.lastLoud > QUIET_END_MS || now - this.startedAt > MAX_UTTERANCE_MS) {
       this.speaking = false;
-      this.loudSince = 0;
+      this.recentLevels = [];
       const samples = concat(this.frames);
       this.frames = [];
       this.events.utterance(toWav16k(samples, rate), samples.length / rate);

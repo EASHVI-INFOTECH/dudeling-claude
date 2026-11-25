@@ -74,3 +74,17 @@ test("sections: inside one box, overlapping drawings are still moved apart", () 
   assert.deepEqual([shapes[0].x, shapes[0].y], [100, 100]);
   assert.notDeepEqual([shapes[1].x, shapes[1].y], [160, 130], "the second one is moved off the first");
 });
+
+test("unnamed shapes survive section changes and replay, while an explicit redraw keeps its id", () => {
+  const shape = (id?: string) => ({ type: "draw_shape", ...(id ? { id } : {}), shape: "ellipse", x: 90, y: 120, width: 100, height: 60 });
+  const step = (...actions: unknown[]) => ({ say: "", actions });
+  const steps = [
+    step({ type: "open_section", id: "s1", title: "First" }), step(shape(), shape(), shape("named"), shape("named")),
+    step({ type: "open_section", id: "s2", title: "Second" }), step(shape()),
+  ];
+  const ids = () => ev.repairBySection("Lesson", steps).flatMap((s: any) => s.actions).filter((a: any) => a.type === "draw_shape").map((a: any) => a.id);
+  const drawn = ids();
+  assert.equal(new Set([drawn[0], drawn[1], drawn[4]]).size, 3);
+  assert.deepEqual(drawn.slice(2,4), ["named","named"]);
+  assert.deepEqual(ids(), drawn);
+});

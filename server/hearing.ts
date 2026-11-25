@@ -19,9 +19,9 @@ export async function transcribe(wavBase64: string): Promise<string> {
   if (samples.every((v) => Math.abs(v) < 0.01)) return "";
   const text = await engineThread.run<string>({ kind: "hearing", samples });
   // Whisper's usual non-speech outputs.
-  if (/^(\[.*\]|\(.*\)|you\.?|\.+)$/i.test(text)) return "";
+  if (/^(\[.*\]|\(.*\)|\.+)$/i.test(text)) return "";
   // "Thank you." is both a real answer and what it invents for noise: believe it only if it sounds like speech.
-  if (/^thank you[.!]?$/i.test(text) && !soundsSpoken(samples)) return "";
+  if (/^(thank you|you)[.!]?$/i.test(text) && !soundsSpoken(samples)) return "";
   return text;
 }
 

@@ -12,6 +12,9 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { Zip, ZipPassThrough } from "fflate";
+import { deflateRawSync } from "node:zlib";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -70,7 +73,7 @@ for (const file of Object.keys(models)) copy(`models/${file}`);
 // Exactly the files the engine thread loads.
 const RUNTIME = {
   "kokoro-js": ["dist/kokoro.js", "voices/af_heart.bin"],
-  phonemizer: ["dist/phonemizer.js", "dist/phonemizer.cjs"],
+  phonemizer: ["dist/phonemizer.js", ...(win ? ["dist/phonemizer.cjs"] : [])],
   "@huggingface/transformers": ["dist/transformers.node.mjs"],
   "@huggingface/jinja": ["dist"],
   "onnxruntime-node": ["dist", ...{
@@ -135,7 +138,32 @@ const name = FILE;
 const file = join(root, name);
 rmSync(file, { force: true });
 mcpb("validate", join(out, "manifest.json"));
-mcpb("pack", out, file);
+// Stream one compressed entry at a time to keep memory bounded while packing the models.
+const fd = openSync(file, "w");
+try {
+  const archive = new Zip((err, chunk) => {
+    if (err) throw err;
+    let offset = 0;
+    while (offset < chunk.length) offset += writeSync(fd, chunk, offset, chunk.length - offset);
+  });
+  for (const path of readdirSync(out, { recursive: true }).sort()) {
+    const src = join(out, path);
+    const stat = statSync(src);
+    if (!stat.isFile()) continue;
+    const entry = new ZipPassThrough(path.replaceAll("\\", "/"));
+    entry.compression = 8;
+    entry.process = (bytes, final) => entry.ondata(null, deflateRawSync(bytes, { level: 9 }), final);
+    if (!win) {
+      entry.os = 3;
+      entry.attrs = (stat.mode & 0o777) << 16;
+    }
+    archive.add(entry);
+    entry.push(readFileSync(src), true);
+  }
+  archive.end();
+} finally {
+  closeSync(fd);
+}
 const mb = statSync(file).size / 1e6;
 console.log(`${name}: ${mb.toFixed(1)} MB (${manifest.version})`);
 if (mb > MAX_MB) throw new Error(`over the ${MAX_MB} MB limit`);

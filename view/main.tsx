@@ -22,7 +22,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VERSION } from "../server/version";
 import { DEMO } from "./demo";
-import { boardPicture } from "./drawing";
+import { useBoardDrawing } from "./useBoardDrawing";
 import { PlayOrder } from "../server/prepared";
 import { partSteps, Sections, sketchSteps, type BoardEvent, type Played } from "./events";
 import { Listener } from "./listen";
@@ -47,7 +47,7 @@ const MISSING_MAX = 12;
 /** On a board shown again, replies older than this aren't said again. */
 const STALE_REPLY_MS = 15_000;
 /** After the learner stops drawing for this long, Claude gets a picture of the board. */
-const DRAWING_SETTLE_MS = 2500;
+
 // Said only when Claude's answer is late, never twice in a row, and at most once in a while: a filler on every
 // question is what makes a voice agent annoying (and a quick answer needs none).
 const FILLERS = ["Hmm, let me think.", "One moment.", "Okay, let me see.", "Right, let me check."];
@@ -57,6 +57,7 @@ const FILLER_GAP_MS = 45_000;
 type Theme = "light" | "dark";
 type ClaudeState = "listening" | "busy" | "away";
 type Talk = "off" | "starting" | "listening" | "hearing" | "transcribing" | "denied";
+type Question = { turn: number; cut: { during: string } | null; check?: string };
 type Insets = NonNullable<McpUiHostContext["safeAreaInsets"]>;
 const IDLE: PlayerState = { narrating: false, paused: false, waiting: false, preparing: false };
 
@@ -107,6 +108,15 @@ function Board() {
   /** Bumped by clear: replies meant for the old topic are dropped. */
   const topic = useRef(0);
   /** Claude's replies play one after another, never over the lesson's narration. */
+  const serverTopic = useRef(0);
+  const scope = () => ({ topic: serverTopic.current, view: VIEW });
+  const stamp = () => [boardIdRef.current, following.current, topic.current].join("/");
+  const drawing = useBoardDrawing(apiRef, callTool, (board_id, erased) => {
+    const message = erased ? "The learner erased their marks." : "The learner edited their drawing.";
+    void app.updateModelContext({ content: [{ type: "text", text: `${message} Call look_at_board on ${board_id} to see the current canvas.` }] }).catch(() => {});
+    setSentDrawing(true);
+    setTimeout(() => setSentDrawing(false), 2500);
+  }, msg => report("warning", msg));
   const asides = useRef<Promise<void>>(Promise.resolve());
   const currentReply = useRef<string | null>(null);
   /** Replies waiting or being said: the lesson's next line waits for them. */
@@ -117,6 +127,7 @@ function Board() {
   const pausedByLearner = useRef(false);
   /** The learner is mid-sentence: nothing of Dudeling's starts. */
   const learnerTalking = useRef(false);
+  const recognitionFailed = useRef(false);
   /** Bumped when the learner cuts in: replies and resumes queued before it don't happen. */
   const turn = useRef(0);
   /** A resume is queued (if the cut-in turns out to be noise, it still happens). */
@@ -194,7 +205,7 @@ function Board() {
     if (now.seq === was.seq && now.step === was.step && now.narrating === was.narrating) return;
     progress.current = now;
     const board_id = boardIdRef.current;
-    if (embedded && board_id) void callTool("board_progress", { board_id, view: VIEW, ...now }).catch(() => {});
+    if (embedded && board_id) void callTool("board_progress", { board_id, ...scope(), ...now }).catch(() => {});
   }, []);
 
   const play = useCallback(
@@ -239,6 +250,17 @@ function Board() {
    */
   const resetBoard = useCallback(async (t: string) => {
     topic.current++;
+    drawing.reset();
+    unclaimed.current = [];
+    interruption.current = null;
+    cutReply.current = currentReply.current = null;
+    learnerTalking.current = recognitionFailed.current = false;
+    if (listenerRef.current?.on) setTalk("listening");
+    turn.current++;
+    cancelFiller();
+    setInChat(false);
+    setThinking(false);
+    setDraft("");
     playerRef.current?.stop();
     playerRef.current = null;
     voiceRef.current.stop();
@@ -295,13 +317,13 @@ function Board() {
       // One reply failing must not silence the ones after it (or the resume queued behind them).
       .catch((e) => report("warning", `reply failed: ${String(e).slice(0, 160)}`))
       .finally(() => {
+        if (of !== topic.current) return;
         currentReply.current = null;
         setReplying(false);
         if (replyingNow.current) {
           replyingNow.current = false;
           saveProgress({ narrating: !!playerRef.current?.isNarrating });
         }
-        if (of !== topic.current) return;
         repliesDue.current--;
         if (!repliesDue.current) playerRef.current?.start();
       });
@@ -316,7 +338,7 @@ function Board() {
       .then(async () => {
         while (of === topic.current && learnerTalking.current) await new Promise((r) => setTimeout(r, 100));
         // Cutting a reply off must not start the lesson talking over the learner.
-        if (of !== topic.current || asked !== turn.current) return;
+        if (of !== topic.current || asked !== turn.current || recognitionFailed.current) return;
         resumeDue.current = false;
         pausedByLearner.current = false;
         setThinking(false);
@@ -339,26 +361,30 @@ function Board() {
   /** Claude isn't listening: move what it hasn't taken to the chat's message box. Once, never again. */
   const fallBackToChat = useCallback(async () => {
     const board_id = boardIdRef.current;
+    const origin = stamp();
+    const source = scope();
     const waiting = unclaimed.current.splice(0);
     if (!board_id || !waiting.length) return;
     const taken: typeof waiting = [];
     for (const m of waiting) {
       try {
-        if ((await callTool<{ withdrawn?: boolean }>("learner_unsend", { board_id, id: m.id })).data?.withdrawn) taken.push(m);
+        if ((await callTool<{ withdrawn?: boolean }>("learner_unsend", { board_id, ...source, id: m.id })).data?.withdrawn) taken.push(m);
       } catch (e) {
         report("warning", `couldn't take a message back: ${String(e).slice(0, 120)}`);
       }
     }
-    if (!taken.length) return;
+    if (!taken.length || origin !== stamp()) return;
     setThinking(false);
     const words = taken.map((m) => m.text).join(" ");
     const how = taken.some((m) => m.how === "spoken") ? "spoken" : "typed";
     if (await sendToChat(`(${how} on the Dudeling board) ${words}`)) {
+      if (origin !== stamp()) return;
       setInChat(true);
       setCaption("That's in the chat's message box: press Enter there to send it.");
     } else {
       // Keep the words for when Claude listens again.
-      for (const m of taken) await callTool("learner_said", { board_id, text: m.text, how: m.how }).catch(() => {});
+      for (const m of taken) await callTool("learner_said", { board_id, ...source, text: m.text, how: m.how }).catch(() => {});
+      if (origin !== stamp()) return;
       setCaption("Claude has stopped listening. Type “continue” in the chat.");
     }
   }, [sendToChat]);
@@ -390,38 +416,50 @@ function Board() {
     cancelFiller();
     voiceRef.current.stop();
     const board_id = boardIdRef.current;
-    if (board_id) void callTool("learner_active", { board_id, what: "cut_in" }).catch(() => {});
+    if (board_id) void callTool("learner_active", { board_id, ...scope(), what: "cut_in" }).catch(() => {});
   }, []);
 
+  const questionContext = (): Question => {
+    const cut = interruption.current ?? (pausedByLearner.current ? { during: "" } : null);
+    return { turn: turn.current, cut, check: cut ? undefined : playerRef.current?.waitingForAnswer ?? undefined };
+  };
+
   const submit = useCallback(
-    async (text: string, how: "spoken" | "typed"): Promise<boolean> => {
+    async (text: string, how: "spoken" | "typed", recording?: Question): Promise<boolean> => {
       const board_id = boardIdRef.current;
       if (!board_id) return false;
-      if (how === "typed") cutIn();
-      // Still paused from an earlier question counts too, or nothing would ever resume the lesson.
-      const cut = interruption.current ?? (pausedByLearner.current ? { during: "" } : null);
-      interruption.current = null;
-      resumeDue.current = false;
-      cutReply.current = null;
-      const check = cut ? undefined : (playerRef.current?.waitingForAnswer ?? undefined);
-      setCaption(`You: ${text}`);
-      setThinking(true);
-      setInChat(false);
+      const origin = stamp();
+      if (how === "typed") {
+        learnerTalking.current = false;
+        cutIn();
+      }
+      const { turn: asked, cut, check } = recording ?? questionContext();
+      if (asked === turn.current) {
+        recognitionFailed.current = false;
+        interruption.current = null;
+        resumeDue.current = false;
+        cutReply.current = null;
+        setCaption(`You: ${text}`);
+        setThinking(true);
+        setInChat(false);
+      }
       try {
         const { data, failed } = await callTool<{ id?: string; claude?: ClaudeState }>("learner_said", {
           board_id,
+          ...scope(),
           text: text.slice(0, 2000),
           how,
           ...(cut ? { interrupted: true, ...(cut.during ? { during: cut.during } : {}) } : {}),
           ...(check ? { check } : {}),
         });
+        if (origin !== stamp()) return false;
         if (failed || !data?.id) throw new Error("not saved");
         const state = data.claude ?? claudeRef.current;
         if (state !== "listening") unclaimed.current.push({ id: data.id, text, how });
+        if (asked !== turn.current) return true;
         sawClaude(state);
         // Only if Claude is slow to answer: something short, while it thinks (and only if its audio is here).
         cancelFiller();
-        const asked = turn.current;
         filler.current.timer = setTimeout(() => {
           filler.current.timer = null;
           const f = filler.current;
@@ -437,6 +475,7 @@ function Board() {
         }, FILLER_AFTER_MS);
         return true;
       } catch (e) {
+        if (origin !== stamp() || asked !== turn.current) return false;
         report("warning", `learner_said failed: ${String(e).slice(0, 160)}`);
         setThinking(false);
         setCaption("That didn't reach Dudeling. Try again, or type it in the chat.");
@@ -457,6 +496,8 @@ function Board() {
       let missing = 0;
       let failures = 0;
       let first = true;
+      let lastCapture: string | undefined;
+      let restoredTopic = -1;
       let known: ClaudeState | undefined;
       let sections = new Sections();
       // Parts Claude prepared ahead wait here until its verdict on the learner's answer releases one.
@@ -508,12 +549,14 @@ function Board() {
             const { data: u } = await callTool<{
               gone?: boolean;
               superseded?: boolean;
+              topic?: number;
+              capture?: string;
               title?: string;
               events?: BoardEvent[];
               now?: number;
               played?: Played;
               claude?: ClaudeState;
-            }>("board_updates", { board_id: boardId, since, view: VIEW, ...(first ? { take: true } : { wait_ms: WAIT_MS, claude: known }) }, WAIT_MS + 15_000);
+            }>("board_updates", { board_id: boardId, since, view: VIEW, capture: lastCapture, ...(first ? { take: true } : { wait_ms: WAIT_MS, claude: known }) }, WAIT_MS + 15_000);
             if (run !== following.current) return;
             if (u?.gone) {
               if (++missing > MISSING_MAX) {
@@ -530,6 +573,9 @@ function Board() {
             if (u.superseded) {
               // A newer view plays from here on: this one is still a picture, nothing more.
               following.current++;
+              topic.current++;
+              drawing.reset();
+              cancelFiller();
               playerRef.current?.stop();
               voiceRef.current.stop();
               stopTalkRef.current();
@@ -538,7 +584,17 @@ function Board() {
             }
             if (first && u.title) setTitle((title_ = u.title));
             if (first && u.played) progress.current = { seq: u.played.seq, step: u.played.step, narrating: false };
+            serverTopic.current = u.topic ?? 0;
             await apply(u.events, u.played ?? { seq: 0, step: 0 }, u.now ?? Date.now());
+            if (run !== following.current) return;
+            if (restoredTopic !== serverTopic.current) {
+              await drawing.restore({ board_id: boardId, view: VIEW, topic: serverTopic.current });
+              restoredTopic = serverTopic.current;
+            }
+            if (u.capture && u.capture !== lastCapture) {
+              await drawing.capture(u.capture);
+              lastCapture = u.capture;
+            }
             if (u.claude) {
               known = u.claude;
               sawClaude(u.claude);
@@ -570,27 +626,51 @@ function Board() {
     if (listenerRef.current) return stopTalk(); // also while it's still starting
     setTalk("starting");
     const current = () => listenerRef.current === listener;
+    let recording = "";
+    let question: Question;
     const listener: Listener = new Listener({
       speechStart: () => {
         if (!current()) return;
+        recording = stamp();
         setTalk("hearing");
         learnerTalking.current = true;
         cutIn();
+        question = questionContext();
       },
       utterance: (wav) => {
         if (!current()) return;
-        learnerTalking.current = false;
+        const origin = recording;
+        const captured = question;
+        const asked = captured.turn;
+        const valid = () => current() && origin === stamp();
+        if (!valid()) { setTalk("listening"); return; }
         setTalk("transcribing");
         utterances.current = utterances.current
           .then(async () => {
+            if (!valid()) return;
             let text = "";
             try {
-              text = String((await callTool<{ text?: string }>("transcribe", { wav }, 90_000)).data?.text ?? "").trim();
+              const result = await callTool<{ text?: string }>("transcribe", { wav }, 90_000);
+              if (result.failed || typeof result.data?.text !== "string") throw new Error("Transcription unavailable");
+              text = result.data.text.trim();
             } catch (e) {
+              if (!valid()) return;
+              if (asked === turn.current) {
+                recognitionFailed.current = true;
+                learnerTalking.current = false;
+                setTalk("listening");
+                setCaption("I couldn’t hear your question clearly. Please ask again or type it here.");
+              }
               report("warning", `transcribe failed: ${String(e).slice(0, 160)}`);
+              return;
             }
-            if (current()) setTalk("listening");
-            if (text) return void (await submit(text, "spoken"));
+            if (!valid()) return;
+            if (asked === turn.current) {
+              learnerTalking.current = false;
+              setTalk("listening");
+            }
+            if (text) return void (await submit(text, "spoken", captured));
+            if (asked !== turn.current) return;
             // Just noise: carry on where we were.
             const resume = !!interruption.current || resumeDue.current;
             interruption.current = null;
@@ -607,9 +687,10 @@ function Board() {
       },
     });
     listenerRef.current = listener;
-    if (boardIdRef.current) void callTool("learner_active", { board_id: boardIdRef.current, what: "talk_on" }).catch(() => {});
+    if (boardIdRef.current) void callTool("learner_active", { board_id: boardIdRef.current, ...scope(), what: "talk_on" }).catch(() => {});
     try {
       if (!(await listener.start()) || !current()) return;
+      listener.dudelingTalking = voiceRef.current.audible;
       voiceRef.current.onTalking = (on) => (listener.dudelingTalking = on);
       setTalk("listening");
     } catch (e) {
@@ -623,9 +704,14 @@ function Board() {
 
   // Whatever happens to the board, the microphone is let go.
   useEffect(() => {
-    const release = () => stopTalkRef.current();
+    const saveInk = () => { void drawing.flush(); };
+    const release = () => { stopTalkRef.current(); saveInk(); };
+    window.addEventListener("pointerup", saveInk);
     window.addEventListener("pagehide", release);
-    return () => window.removeEventListener("pagehide", release);
+    return () => {
+      window.removeEventListener("pagehide", release);
+      window.removeEventListener("pointerup", saveInk);
+    };
   }, []);
 
   const applyTool = useCallback((tool: ToolId, color: string) => {
@@ -649,6 +735,7 @@ function Board() {
       playerRef.current?.stop();
       playerRef.current = null;
       apiRef.current = api;
+      drawing.applyRestore();
       const a = new BoardAgent(api);
       a.followInk = true; // a chat frame is small: the view keeps up with the pen as it draws
       a.insets = { top: 92, bottom: 64 }; // keep drawing clear of the toolbar (top) and the Follow toggle (bottom)
@@ -663,36 +750,10 @@ function Board() {
   );
 
   // When the learner draws, send Claude a picture of the board (once they pause), and tell it so.
-  const lastVersion = useRef("");
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChange = useCallback((_: unknown, appState: AppState) => {
     const type = appState.activeTool.type;
-    setActiveTool((cur) => (ALL_TOOLS.find((t) => t.id === cur)!.excalidraw === type ? cur : (ALL_TOOLS.find((t) => t.excalidraw === type)?.id ?? cur)));
-    const a = agentRef.current;
-    const board_id = boardIdRef.current;
-    if (!a || !board_id || !embedded) return;
-    const version = a.humanDrawingVersion();
-    if (version === lastVersion.current) return;
-    lastVersion.current = version;
-    if (settle.current) clearTimeout(settle.current);
-    settle.current = setTimeout(async () => {
-      const api = apiRef.current;
-      if (!api || !version) return;
-      try {
-        const picture = await boardPicture(api);
-        if (!picture) return report("warning", "the drawing is too big to share");
-        const marks = version.split(",").length;
-        const { failed } = await callTool("learner_drew", { board_id, image: picture.image, mime_type: picture.mimeType, note: `${marks} mark${marks === 1 ? "" : "s"} by the learner` });
-        if (failed) return;
-        await app
-          .updateModelContext({ content: [{ type: "text", text: `The learner drew on the Dudeling board (board_id ${board_id}). Call look_at_board to see their drawing before you answer.` }] })
-          .catch(() => {});
-        setSentDrawing(true);
-        setTimeout(() => setSentDrawing(false), 2500);
-      } catch (e) {
-        report("warning", `couldn't share the drawing: ${String(e).slice(0, 160)}`);
-      }
-    }, DRAWING_SETTLE_MS);
+    setActiveTool(cur => ALL_TOOLS.find(t => t.id === cur)!.excalidraw === type ? cur : ALL_TOOLS.find(t => t.excalidraw === type)?.id ?? cur);
+    drawing.change();
   }, []);
 
   // Connect to the chat host (handlers first: the host may send tool input right after the handshake).
@@ -718,6 +779,10 @@ function Board() {
     };
     app.onhostcontextchanged = (ctx) => context(ctx);
     app.onteardown = async () => {
+      await drawing.flush();
+      drawing.reset();
+      topic.current++;
+      cancelFiller();
       following.current++;
       stopTalkRef.current();
       playerRef.current?.stop();
@@ -759,14 +824,15 @@ function Board() {
     const p = playerRef.current;
     if (!p) return;
     pausedByLearner.current = false;
-    if (p.isPaused) p.resume();
+    if (p.isPaused) { recognitionFailed.current = false; p.resume(); }
     else p.pause();
   };
   const sendDraft = async () => {
     const text = draft.trim();
     if (!text) return;
+    const origin = stamp();
     setDraft("");
-    if (!(await submit(text, "typed"))) setDraft((d) => d || text);
+    if (!(await submit(text, "typed")) && origin === stamp()) setDraft((d) => d || text);
   };
   const continueInChat = async () => {
     if (await sendToChat(`Continue the Dudeling lesson on board ${boardIdRef.current}, and listen to me on the board.`)) {

@@ -3,7 +3,7 @@
 import { protectProcess } from "./safety.ts";
 protectProcess({ stdio: true }); // first: before anything can print to stdout
 const { StdioServerTransport } = await import("@modelcontextprotocol/server/stdio");
-const { createDudelingServer, loadBoardHtml } = await import("./app.ts");
+const { createDudelingServer } = await import("./app.ts");
 const engine = await import("./engine.ts");
 
 let stopping = false;
@@ -19,6 +19,6 @@ process.stdin.on("close", shutdown);
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-const server = createDudelingServer(loadBoardHtml());
+const server = createDudelingServer();
 await server.connect(new StdioServerTransport());
 void engine.start(); // one voice/hearing engine per computer (Claude Desktop starts this plugin twice)

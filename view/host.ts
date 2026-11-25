@@ -32,10 +32,15 @@ class BridgeTransport implements Transport {
     import.meta.hot!.on("dudeling:from-plugin", this.receive);
   }
   async send(message: JSONRPCMessage) {
-    const w = window as unknown as { __toolCalls: number; __longestCall: () => number };
+    const w = window as unknown as { __toolCalls: number; __longestCall: () => number; __transcription?: () => Promise<Record<string, unknown>> };
     w.__longestCall ??= () => this.longest;
     if ("method" in message && "id" in message && message.method === "tools/call") {
       w.__toolCalls++;
+      if (message.params?.name === "transcribe" && w.__transcription) {
+        const result = await w.__transcription();
+        this.onmessage?.({ jsonrpc: "2.0", id: message.id, result });
+        return;
+      }
       const id = message.id;
       const at = performance.now();
       this.sent.set(id, at);

@@ -7,7 +7,7 @@ network requests in normal use.
 |---|---|
 | Your microphone (only while Talk is on) | Turned into text on your computer, then discarded. The audio is never saved or sent. |
 | What you said (as text) or typed on the board | Given to Claude as part of your conversation, so Anthropic's privacy policy applies to it. |
-| What you drew on the board | A picture is kept on your computer, and given to Claude when it looks at the board. |
+| What you drew on the board | Editable marks are saved on your computer. When Claude looks at the board, it receives a picture and a description of the canvas. |
 | What Claude teaches | Handled by Claude like the rest of your conversation. The board keeps a copy on your computer. |
 | Dudeling's voice | Made on your computer. If that fails, the board uses only a system voice that runs on your computer, or captions. |
 

@@ -53,7 +53,7 @@ let writes = 0;
 export function writePrivate(path: string, data: unknown) {
   const tmp = `${path}.${process.pid}.${writes++}.tmp`;
   try {
-    writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
+    writeFileSync(tmp, data instanceof Uint8Array ? data : JSON.stringify(data), { mode: 0o600 });
     renameWhenFree(tmp, path);
   } finally {
     rmSync(tmp, { force: true });

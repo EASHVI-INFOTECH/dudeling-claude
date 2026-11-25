@@ -93,6 +93,7 @@ function serve(): Promise<boolean> {
           if (stopped) return reply(503, { error: "shutting down" });
           const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
           if (req.url === "/ping") return reply(200, { ok: true, pid: process.pid });
+          if (req.url === "/prefetch") return reply(200, (voice.prefetch(String(body.text ?? ""), { priority: body.priority, group: body.group }), {}));
           if (req.url === "/speak") return reply(200, await voice.speak(String(body.text ?? ""), { priority: body.priority, group: body.group }));
           if (req.url === "/transcribe") return reply(200, { text: await hear(String(body.wav ?? "")) });
           if (req.url === "/cancel") return reply(200, (voice.cancel(String(body.group ?? "")), {}));
@@ -192,6 +193,8 @@ export const speak = (text: string, opts: voice.SpeakOptions = {}) =>
     () => voice.speak(text, opts),
     () => call<voice.Spoken>("/speak", { text, ...opts }, SPEAK_MS),
   );
+export const prefetch = (text: string, opts: voice.SpeakOptions) =>
+  onEngine<void>(() => voice.prefetch(text, opts), () => call("/prefetch", { text, ...opts }, 5000));
 export const transcribe = (wav: string) =>
   onEngine(
     () => hear(wav),

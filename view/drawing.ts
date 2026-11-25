@@ -18,18 +18,42 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(bin);
 }
 
-export async function boardPicture(api: ExcalidrawImperativeAPI): Promise<{ image: string; mimeType: string } | null> {
+export async function boardPicture(api: ExcalidrawImperativeAPI, elements = api.getSceneElements()): Promise<{ image: string; mimeType: string } | null> {
   for (const { mimeType, side, quality } of TRIES) {
     const blob = await exportToBlob({
-      elements: api.getSceneElements(),
+      elements,
       appState: { ...api.getAppState(), exportBackground: true, viewBackgroundColor: "#ffffff", exportWithDarkMode: false },
       files: api.getFiles(),
       mimeType,
       quality,
       maxWidthOrHeight: side,
     });
-    const image = await blobToBase64(blob);
-    if (image.length <= MAX_CHARS) return { image, mimeType };
+    if (4 * Math.ceil(blob.size / 3) <= MAX_CHARS) return { image: await blobToBase64(blob), mimeType };
   }
   return null;
+}
+
+export function sceneSummary(elements: ReturnType<ExcalidrawImperativeAPI["getSceneElements"]>) {
+  const lines = elements.map(el => {
+    const content = "text" in el ? el.text.slice(0, 250) : "";
+    const label = el.customData?.section && el.type === "text" ? `Box "${content}"` : [el.id, el.type, content].filter(Boolean).join(" ");
+    const owner = el.customData?.by === "agent" ? "" : " (learner)";
+    const link = el.type === "text" && el.containerId ? ` label of ${el.containerId}` :
+      el.type === "arrow" ? ` from ${el.startBinding?.elementId ?? "point"} to ${el.endBinding?.elementId ?? "point"}` : "";
+    return `${label}${owner}${link} at (${Math.round(el.x)},${Math.round(el.y)}), ${Math.round(el.width)} × ${Math.round(el.height)}`;
+  });
+  const text = lines.join("\n") || "(empty canvas)";
+  return text.length <= 16_000 ? text : text.slice(0, 15_960) + "\n(additional elements in the picture)";
+}
+
+type Scene = ReturnType<ExcalidrawImperativeAPI["getSceneElements"]>;
+type Files = ReturnType<ExcalidrawImperativeAPI["getFiles"]>;
+export type Drawing = { elements: Scene; files: Files };
+
+export function learnerDrawing(api: ExcalidrawImperativeAPI): Drawing {
+  const elements = api.getSceneElements().filter(el => el.customData?.by !== "agent");
+  const files: Files = {};
+  const allFiles = api.getFiles();
+  for (const el of elements) if (el.type === "image" && el.fileId && allFiles[el.fileId]) files[el.fileId] = allFiles[el.fileId];
+  return { elements, files };
 }

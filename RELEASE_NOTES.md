@@ -1,14 +1,13 @@
-# Dudeling 1.0.0-rc.6
+# Dudeling 1.0.0-rc.7
 
-A whiteboard tutor inside Claude Desktop, for Apple-silicon Macs and, new and in testing, 64-bit Windows PCs,
-in English.
+Dudeling teaches in English on a shared whiteboard in Claude Desktop. This release improves interruptions, drawing recovery, and lesson storage.
 
-- **New: Windows.** `dudeling-win32-x64.mcpb`, for Windows 10 and 11 on Intel or AMD processors. Please report
-  anything odd in Issues, with what the board said and your Windows version.
-- Lessons drawn and narrated in sync, one part at a time, with a check question.
-- Talk or type on the board to ask, answer or interrupt. While Claude is listening, no Enter is needed.
-- The voice and speech recognition run on your computer. No account or key.
-- Lessons come back where you left off, for 30 days.
+- Short spoken questions can interrupt narration. If transcription fails, the board stays paused so you can repeat the question or type it.
+- Claude can request a current picture of the board, including the positions of the shapes already on the canvas.
+- New learner drawings remain editable when you reopen a board. Erasing a mark updates the saved drawing.
+- Changing topics clears pending questions and sketches from the previous topic. Drawing and answering extend the lesson’s 30-day retention period.
+- Longer lessons save incrementally. Replacing a prepared quiz branch frees its drawing budget and cancels its queued speech.
+- The Apple-silicon download is about 5.70 MB smaller. It includes the same offline voice and recognition models.
 
 Download `dudeling-darwin-arm64.mcpb` for a Mac or `dudeling-win32-x64.mcpb` for Windows.
 
